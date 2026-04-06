@@ -42,6 +42,10 @@ class StepResponse(BaseModel):
     done: bool
     info: Dict[str, Any]
 
+@app.get("/")
+def read_root():
+    return {"message": "Cognitive Load Manager is running 🚀"}
+
 @app.post("/reset", response_model=ResetResponse)
 def reset_env(req: ResetRequest):
     if req.level not in ["easy", "medium", "hard"]:
