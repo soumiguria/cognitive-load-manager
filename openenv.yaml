@@ -1,0 +1,36 @@
+name: clm-env
+description: Cognitive Load Manager (CLM) simulates human cognitive load (energy, stress, fatigue) while managing tasks with deadlines.
+version: "1.0.0"
+schema:
+  observation:
+    type: object
+    properties:
+      tasks:
+        type: array
+        items:
+          type: object
+          properties:
+            id: { type: string }
+            difficulty: { type: string }
+            progress: { type: number }
+            deadline: { type: number, nullable: true }
+      visible_state:
+        type: object
+        properties:
+          fatigue_level: { type: string }
+          stress_warning: { type: boolean }
+      time_step: { type: integer }
+  action:
+    type: object
+    properties:
+      type: { type: string, enum: ["work", "break", "switch", "delay"] }
+      task_id: { type: string, nullable: true }
+  reward:
+    type: number
+tasks:
+  - id: easy
+    description: "2 tasks, no interruptions"
+  - id: medium
+    description: "5 tasks, deadlines"
+  - id: hard
+    description: "8 tasks, interruptions, hidden fatigue"
