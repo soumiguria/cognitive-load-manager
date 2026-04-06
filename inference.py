@@ -1,0 +1,155 @@
+import os
+import json
+import requests
+from typing import List, Optional
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
+
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+TASK_NAME = "schedule-optimization"
+BENCHMARK = "cognitive-load-manager"
+SUCCESS_SCORE_THRESHOLD = 0.5  # Need 50% score basically
+MAX_STEPS = 50
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+def main():
+    # OpenAI client mapping to Hugging Face router, requiring HF_TOKEN
+    client = None
+    if HF_TOKEN:
+        # Initialize an OpenAI client but point it to HF standard completions API 
+        hf_api_base = "https://router.huggingface.co/v1"
+        client = OpenAI(base_url=hf_api_base, api_key=HF_TOKEN)
+
+    # Initialize Environment
+    level = os.getenv("CLM_LEVEL", "hard")
+    
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    
+    # 1. Reset Environment
+    try:
+        res = requests.post(f"{API_BASE_URL}/reset", json={"level": level})
+        res.raise_for_status()
+        data = res.json()
+    except Exception as e:
+        log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:50])
+        log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
+        
+    session_id = data["session_id"]
+    observation = data["observation"]
+    
+    done = False
+    step = 0
+    rewards = []
+    history = []
+    info = {}
+    
+    while not done and step < MAX_STEPS:
+        step += 1
+        
+        # 2. Extract action via OpenAI interface (pointing to HF)
+        history_str = "\n".join(history[-5:]) if history else "No previous actions."
+        prompt = f"""
+You are an AI agent managing tasks with deadlines under cognitive load.
+Your goals: Complete all tasks efficiently, avoiding burnout and minimizing stress.
+
+CRITICAL RULES:
+1. If your fatigue_level is "high" or energy drops too low, you MUST prioritize {{"type": "break"}} otherwise you will hit Burnout and fail!
+2. Do not work on a task if its progress is 1.0 (completed). Keep track of task statuses!
+
+Previous 5 Steps History:
+{history_str}
+
+Current Observation:
+{json.dumps(observation, indent=2)}
+
+Respond ONLY with a valid JSON object representing your next action: 
+{{"type": "work", "task_id": "id"}} or {{"type": "break"}} or {{"type": "delay"}} or {{"type": "switch", "task_id": "id"}}
+"""
+        action = None
+        error_msg = None
+        
+        if client:
+            try:
+                completion = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=150
+                )
+                action_text = (completion.choices[0].message.content or "").strip()
+                # strip potential code blocks if model hallucinates them
+                if action_text.startswith("```json"): action_text = action_text[7:]
+                if action_text.endswith("```"): action_text = action_text[:-3]
+                
+                start_idx = action_text.find("{")
+                end_idx = action_text.rfind("}")
+                if start_idx != -1 and end_idx != -1:
+                    json_str = action_text[start_idx:end_idx+1]
+                    action = json.loads(json_str)
+            except Exception as e:
+                error_msg = str(e)[:50]
+        
+        # Fallback heuristic logic if action could not be parsed
+        if not action:
+            tasks = observation.get("tasks", [])
+            incomp = [t for t in tasks if t.get("progress", 0.0) < 1.0]
+            if observation.get("visible_state", {}).get("fatigue_level") == "high":
+                action = {"type": "break"}
+            elif incomp:
+                action = {"type": "work", "task_id": incomp[0]["id"]}
+            else:
+                action = {"type": "delay"}
+
+        # Stringify action densely for stdout formatting
+        action_str = json.dumps(action).replace(" ", "")
+        
+        # 3. Process action in Env
+        try:
+            res = requests.post(f"{API_BASE_URL}/step", json={
+                "session_id": session_id,
+                "action": action
+            })
+            res.raise_for_status()
+            step_data = res.json()
+            
+            observation = step_data["observation"]
+            reward = step_data.get("reward", 0.0)
+            done = step_data.get("done", False)
+            info = step_data.get("info", {})
+        except Exception as e:
+            reward = 0.0
+            done = True
+            error_msg = error_msg or str(e)[:50]
+            
+        rewards.append(reward)
+        history.append(f"Step {step} Action: {action_str} -> Reward: {reward}")
+        log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+
+    score = info.get("final_score", 0.0)
+    success = score >= SUCCESS_SCORE_THRESHOLD
+    log_end(success=success, steps=step, score=score, rewards=rewards)
+
+if __name__ == "__main__":
+    main()
