@@ -2,7 +2,7 @@
 title: Cognitive Load Manager
 emoji: 😎
 colorFrom: yellow
-colorTo: orange
+colorTo: red
 sdk: docker
 app_file: app.py
 pinned: false
