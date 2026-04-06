@@ -1,4 +1,16 @@
+---
+title: Cognitive Load Manager
+emoji: 😎
+colorFrom: yellow
+colorTo: red
+sdk: docker
+app_file: app.py
+pinned: false
+---
+
+
 # 🧠 Cognitive Load Manager (CLM) 
+
 **An OpenEnv RL Simulation for the Meta PyTorch Hackathon**
 
 [![Meta PyTorch Hackathon](https://img.shields.io/badge/Meta-PyTorch_Hackathon-blue?style=for-the-badge&logo=meta)](#)
