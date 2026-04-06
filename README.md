@@ -42,9 +42,9 @@ This project requires **Docker** and comes fully compliant with the Meta OpenEnv
 Build and run the FastAPI simulation backend locally:
 ```bash
 docker build -t clm-env-backend .
-docker run -p 8000:8000 clm-env-backend
+docker run -p 7860:7860 clm-env-backend
 ```
-*(The server binds to `localhost:8000`)*
+*(The server binds to `localhost:7860`)*
 
 ### 2. Configure Your Keys
 Rename `.env.example` to `.env` or create a new `.env` file at the root. You **must** provide a Hugging Face token (No OpenAI keys are required):

@@ -7,7 +7,8 @@ from openai import OpenAI
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -35,9 +36,7 @@ def main():
     # OpenAI client mapping to Hugging Face router, requiring HF_TOKEN
     client = None
     if HF_TOKEN:
-        # Initialize an OpenAI client but point it to HF standard completions API 
-        hf_api_base = "https://router.huggingface.co/v1"
-        client = OpenAI(base_url=hf_api_base, api_key=HF_TOKEN)
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Initialize Environment
     level = os.getenv("CLM_LEVEL", "hard")
@@ -46,7 +45,7 @@ def main():
     
     # 1. Reset Environment
     try:
-        res = requests.post(f"{API_BASE_URL}/reset", json={"level": level})
+        res = requests.post(f"{ENV_BASE_URL}/reset", json={"level": level})
         res.raise_for_status()
         data = res.json()
     except Exception as e:
@@ -129,7 +128,7 @@ What is your next action JSON?
         
         # 3. Process action in Env
         try:
-            res = requests.post(f"{API_BASE_URL}/step", json={
+            res = requests.post(f"{ENV_BASE_URL}/step", json={
                 "session_id": session_id,
                 "action": action
             })
