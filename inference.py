@@ -68,22 +68,23 @@ def main():
         
         # 2. Extract action via OpenAI interface (pointing to HF)
         history_str = "\n".join(history[-5:]) if history else "No previous actions."
-        prompt = f"""
-You are an AI agent managing tasks with deadlines under cognitive load.
-Your goals: Complete all tasks efficiently, avoiding burnout and minimizing stress.
-
+        system_prompt = """
+You are an AI task scheduler managing cognitive load.
 CRITICAL RULES:
-1. If your fatigue_level is "high" or energy drops too low, you MUST prioritize {{"type": "break"}} otherwise you will hit Burnout and fail!
-2. Do not work on a task if its progress is 1.0 (completed). Keep track of task statuses!
-
+1. If "fatigue_level" is "high" or "medium", output {"type": "break"}. Do NOT work until fatigue is "low".
+2. If "stress_warning" is true, {"type": "break"} reduces stress safely.
+3. Find tasks where "progress" < 1.0. Output {"type": "work", "task_id": "<id>"}. Do NOT work on 1.0 tasks.
+4. Respond ONLY with raw JSON format. No markdown blocks.
+Valid actions: {"type": "work", "task_id": "id"}, {"type": "break"}, {"type": "delay"}, {"type": "switch", "task_id": "id"}
+"""
+        user_prompt = f"""
 Previous 5 Steps History:
 {history_str}
 
 Current Observation:
 {json.dumps(observation, indent=2)}
 
-Respond ONLY with a valid JSON object representing your next action: 
-{{"type": "work", "task_id": "id"}} or {{"type": "break"}} or {{"type": "delay"}} or {{"type": "switch", "task_id": "id"}}
+What is your next action JSON?
 """
         action = None
         error_msg = None
@@ -93,7 +94,8 @@ Respond ONLY with a valid JSON object representing your next action:
                 completion = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=[
-                        {"role": "user", "content": prompt}
+                        {"role": "system", "content": system_prompt.strip()},
+                        {"role": "user", "content": user_prompt.strip()}
                     ],
                     temperature=0.1,
                     max_tokens=150
