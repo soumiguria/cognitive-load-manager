@@ -1,5 +1,3 @@
-# 🧠 Cognitive Load Manager (CLM) 
-
 ---
 title: Cognitive Load Manager
 emoji: 😎
@@ -9,6 +7,9 @@ sdk: docker
 app_file: app.py
 pinned: false
 ---
+
+
+# 🧠 Cognitive Load Manager (CLM) 
 
 **An OpenEnv RL Simulation for the Meta PyTorch Hackathon**
 
