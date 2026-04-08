@@ -28,14 +28,13 @@ def post_json(url: str, payload: dict) -> dict:
         raise Exception(f"URL Error: {e.reason}")
 
 
-# ── ENV (with safe fallbacks so validator never crashes on missing vars) ──────
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "")
+# ── ENV ───────────────────────────────────────────────────────────────────────
+# IMPORTANT: Use the injected API_BASE_URL and API_KEY from the validator.
+# Do NOT hardcode fallbacks that bypass the LiteLLM proxy.
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY      = os.environ["API_KEY"]
 MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
-
-if not API_KEY:
-    print("[WARN] API_KEY / HF_TOKEN not set — LLM calls will fail; heuristic fallback will be used.", flush=True)
 
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
@@ -65,8 +64,8 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 # ── FALLBACK HEURISTIC ────────────────────────────────────────────────────────
 def heuristic_action(observation: dict) -> dict:
     """Rule-based fallback when LLM call fails or returns unparseable output."""
-    visible       = observation.get("visible_state", {})
-    fatigue       = visible.get("fatigue_level", "low")
+    visible        = observation.get("visible_state", {})
+    fatigue        = visible.get("fatigue_level", "low")
     stress_warning = visible.get("stress_warning", False)
 
     if fatigue in ("high", "medium") or stress_warning:
@@ -74,7 +73,6 @@ def heuristic_action(observation: dict) -> dict:
 
     tasks      = observation.get("tasks", [])
     incomplete = [t for t in tasks if t.get("progress", 0.0) < 1.0]
-    # Prioritise tasks with the earliest deadline
     incomplete.sort(key=lambda t: (t.get("deadline") is None, t.get("deadline", 9999)))
 
     if incomplete:
@@ -84,7 +82,8 @@ def heuristic_action(observation: dict) -> dict:
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 def main() -> None:
-    client  = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "dummy-key")
+    # Initialize client with the injected proxy credentials — no fallbacks
+    client  = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     task_id = os.environ.get("CLM_LEVEL", "hard")
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
@@ -100,8 +99,8 @@ def main() -> None:
     session_id  = data["session_id"]
     observation = data["observation"]
 
-    done: bool         = False
-    step: int          = 0
+    done: bool           = False
+    step: int            = 0
     rewards: List[float] = []
     history: List[str]   = []
     info: dict           = {}
@@ -111,51 +110,50 @@ def main() -> None:
         action: Optional[dict] = None
         error_msg: Optional[str] = None
 
-        # LLM call — uses Chat Completions (compatible with all OpenAI-spec proxies)
-        if API_KEY:
-            try:
-                history_str  = "\n".join(history[-5:]) if history else "No previous actions."
-                system_prompt = (
-                    "You are an AI task scheduler managing human cognitive load.\n"
-                    "RULES:\n"
-                    "1. If fatigue_level is 'high' or 'medium', or stress_warning is true → output {\"type\": \"break\"}\n"
-                    "2. Otherwise work on the incomplete task with the earliest deadline.\n"
-                    "3. Respond ONLY with raw JSON — no markdown, no explanation.\n"
-                    "Valid actions: {\"type\": \"work\", \"task_id\": \"<id>\"} | {\"type\": \"break\"} | "
-                    "{\"type\": \"delay\"} | {\"type\": \"switch\", \"task_id\": \"<id>\"}"
-                )
-                user_prompt = (
-                    f"Previous 5 steps:\n{history_str}\n\n"
-                    f"Current observation:\n{json.dumps(observation, indent=2)}\n\n"
-                    "What is your next action JSON?"
-                )
+        # LLM call — always goes through the injected API_BASE_URL proxy
+        try:
+            history_str   = "\n".join(history[-5:]) if history else "No previous actions."
+            system_prompt = (
+                "You are an AI task scheduler managing human cognitive load.\n"
+                "RULES:\n"
+                "1. If fatigue_level is 'high' or 'medium', or stress_warning is true → output {\"type\": \"break\"}\n"
+                "2. Otherwise work on the incomplete task with the earliest deadline.\n"
+                "3. Respond ONLY with raw JSON — no markdown, no explanation.\n"
+                "Valid actions: {\"type\": \"work\", \"task_id\": \"<id>\"} | {\"type\": \"break\"} | "
+                "{\"type\": \"delay\"} | {\"type\": \"switch\", \"task_id\": \"<id>\"}"
+            )
+            user_prompt = (
+                f"Previous 5 steps:\n{history_str}\n\n"
+                f"Current observation:\n{json.dumps(observation, indent=2)}\n\n"
+                "What is your next action JSON?"
+            )
 
-                completion  = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt},
-                    ],
-                    temperature=0.1,
-                    max_tokens=150,
-                )
-                action_text = (completion.choices[0].message.content or "").strip()
+            completion  = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                temperature=0.1,
+                max_tokens=150,
+            )
+            action_text = (completion.choices[0].message.content or "").strip()
 
-                # Strip accidental markdown fences
-                for fence in ("```json", "```"):
-                    if action_text.startswith(fence):
-                        action_text = action_text[len(fence):]
-                if action_text.endswith("```"):
-                    action_text = action_text[:-3]
-                action_text = action_text.strip()
+            # Strip accidental markdown fences
+            for fence in ("```json", "```"):
+                if action_text.startswith(fence):
+                    action_text = action_text[len(fence):]
+            if action_text.endswith("```"):
+                action_text = action_text[:-3]
+            action_text = action_text.strip()
 
-                s = action_text.find("{")
-                e = action_text.rfind("}")
-                if s != -1 and e != -1:
-                    action = json.loads(action_text[s: e + 1])
+            s = action_text.find("{")
+            e = action_text.rfind("}")
+            if s != -1 and e != -1:
+                action = json.loads(action_text[s: e + 1])
 
-            except Exception as exc:
-                error_msg = str(exc)[:80]
+        except Exception as exc:
+            error_msg = str(exc)[:80]
 
         # Fallback if LLM gave no valid action
         if not action:
