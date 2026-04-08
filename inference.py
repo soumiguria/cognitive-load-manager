@@ -29,19 +29,28 @@ def post_json(url: str, payload: dict) -> dict:
 
 
 # ── ENV ───────────────────────────────────────────────────────────────────────
-# Read the injected proxy credentials — never fall back to another provider.
+# FIX 1: Use os.environ["API_KEY"] strictly — do NOT fall back to HF_TOKEN.
+# HuggingFace Spaces auto-inject HF_TOKEN with your personal token, which is
+# NOT the hackathon's LiteLLM proxy key. Falling back to it means calls go
+# through a different auth path that the proxy cannot track.
+#
 # os.getenv("API_BASE_URL") / os.getenv("MODEL_NAME") / os.getenv("HF_TOKEN")
 # are referenced here so the local validator passes its string-presence checks.
-API_BASE_URL = os.environ.get("API_BASE_URL") or os.getenv("API_BASE_URL")
-API_KEY      = os.environ.get("API_KEY") or os.getenv("HF_TOKEN")
-MODEL_NAME   = os.environ.get("MODEL_NAME") or os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_BASE_URL = os.getenv("API_BASE_URL")
+MODEL_NAME   = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 
-# Hard-fail if the proxy URL or key is missing — do NOT silently fall back.
+# API_KEY must come from the injected API_KEY variable only — no HF_TOKEN fallback.
+API_KEY = os.environ.get("API_KEY")
+if not API_KEY:
+    # Hard-fail loudly so the issue is visible rather than silently bypassing proxy
+    raise RuntimeError(
+        "API_KEY environment variable is not set. "
+        "The hackathon validator must inject API_KEY. "
+        "Do NOT fall back to HF_TOKEN — it is your personal token, not the proxy key."
+    )
 if not API_BASE_URL:
     raise RuntimeError("API_BASE_URL environment variable is not set. Cannot run without the LLM proxy.")
-if not API_KEY:
-    raise RuntimeError("API_KEY (or HF_TOKEN) environment variable is not set. Cannot run without credentials.")
 
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
@@ -68,9 +77,10 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     )
 
 
-# ── FALLBACK HEURISTIC ────────────────────────────────────────────────────────
+# ── HEURISTIC (only for unparseable JSON, NOT for API call failures) ──────────
 def heuristic_action(observation: dict) -> dict:
-    """Rule-based fallback when LLM returns unparseable output."""
+    """Rule-based fallback ONLY when LLM returns unparseable JSON output.
+    This must never be reached due to an API call failure — those should be raised."""
     visible        = observation.get("visible_state", {})
     fatigue        = visible.get("fatigue_level", "low")
     stress_warning = visible.get("stress_warning", False)
@@ -89,7 +99,9 @@ def heuristic_action(observation: dict) -> dict:
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 def main() -> None:
-    # Always use the injected proxy — base_url=API_BASE_URL, api_key=API_KEY
+    # FIX 2: Always use the injected proxy credentials — no fallback keys.
+    # base_url=API_BASE_URL routes through the hackathon's LiteLLM proxy.
+    # api_key=API_KEY uses the proxy-specific key they can track.
     client  = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     task_id = os.environ.get("CLM_LEVEL", "hard")
 
@@ -116,8 +128,9 @@ def main() -> None:
         step += 1
         action: Optional[dict] = None
         error_msg: Optional[str] = None
+        api_call_succeeded = False
 
-        # LLM call — always executed, always routes through API_BASE_URL proxy
+        # LLM call — always routed through API_BASE_URL proxy using API_KEY
         try:
             history_str   = "\n".join(history[-5:]) if history else "No previous actions."
             system_prompt = (
@@ -135,6 +148,8 @@ def main() -> None:
                 "What is your next action JSON?"
             )
 
+            # FIX 3: Do NOT catch API errors here — let them propagate so the
+            # validator can see the failure. Only catch JSON parse errors.
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
@@ -144,6 +159,7 @@ def main() -> None:
                 temperature=0.1,
                 max_tokens=150,
             )
+            api_call_succeeded = True
             action_text = (completion.choices[0].message.content or "").strip()
 
             # Strip accidental markdown fences
@@ -155,15 +171,27 @@ def main() -> None:
             action_text = action_text.strip()
 
             s = action_text.find("{")
-            e = action_text.rfind("}")
-            if s != -1 and e != -1:
-                action = json.loads(action_text[s: e + 1])
+            e_idx = action_text.rfind("}")
+            if s != -1 and e_idx != -1:
+                try:
+                    action = json.loads(action_text[s: e_idx + 1])
+                except json.JSONDecodeError:
+                    error_msg = f"JSON parse error: {action_text[:60]}"
 
         except Exception as exc:
-            error_msg = str(exc)[:80]
+            # Re-raise API/network errors — do NOT silently swallow them.
+            # Swallowing causes heuristic to run, episode "succeeds", but
+            # the proxy records 0 calls. This is what broke the submission.
+            raise RuntimeError(
+                f"LLM API call failed at step {step}. "
+                f"base_url={API_BASE_URL!r} model={MODEL_NAME!r}. "
+                f"Error: {exc}"
+            ) from exc
 
-        # Fallback only for unparseable LLM output — API call was still made
+        # Heuristic only for JSON parse failures, never for API failures
         if not action:
+            if not api_call_succeeded:
+                raise RuntimeError("API call did not succeed — refusing to use heuristic.")
             action = heuristic_action(observation)
 
         action_str = json.dumps(action, separators=(",", ":"))
