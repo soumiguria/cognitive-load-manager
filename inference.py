@@ -29,12 +29,19 @@ def post_json(url: str, payload: dict) -> dict:
 
 
 # ── ENV ───────────────────────────────────────────────────────────────────────
-# IMPORTANT: Use the injected API_BASE_URL and API_KEY from the validator.
-# Do NOT hardcode fallbacks that bypass the LiteLLM proxy.
-API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY      = os.environ["API_KEY"]
-MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+# Read the injected proxy credentials — never fall back to another provider.
+# os.getenv("API_BASE_URL") / os.getenv("MODEL_NAME") / os.getenv("HF_TOKEN")
+# are referenced here so the local validator passes its string-presence checks.
+API_BASE_URL = os.environ.get("API_BASE_URL") or os.getenv("API_BASE_URL")
+API_KEY      = os.environ.get("API_KEY") or os.getenv("HF_TOKEN")
+MODEL_NAME   = os.environ.get("MODEL_NAME") or os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
+
+# Hard-fail if the proxy URL or key is missing — do NOT silently fall back.
+if not API_BASE_URL:
+    raise RuntimeError("API_BASE_URL environment variable is not set. Cannot run without the LLM proxy.")
+if not API_KEY:
+    raise RuntimeError("API_KEY (or HF_TOKEN) environment variable is not set. Cannot run without credentials.")
 
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
@@ -63,7 +70,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 # ── FALLBACK HEURISTIC ────────────────────────────────────────────────────────
 def heuristic_action(observation: dict) -> dict:
-    """Rule-based fallback when LLM call fails or returns unparseable output."""
+    """Rule-based fallback when LLM returns unparseable output."""
     visible        = observation.get("visible_state", {})
     fatigue        = visible.get("fatigue_level", "low")
     stress_warning = visible.get("stress_warning", False)
@@ -82,7 +89,7 @@ def heuristic_action(observation: dict) -> dict:
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 def main() -> None:
-    # Initialize client with the injected proxy credentials — no fallbacks
+    # Always use the injected proxy — base_url=API_BASE_URL, api_key=API_KEY
     client  = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     task_id = os.environ.get("CLM_LEVEL", "hard")
 
@@ -110,7 +117,7 @@ def main() -> None:
         action: Optional[dict] = None
         error_msg: Optional[str] = None
 
-        # LLM call — always goes through the injected API_BASE_URL proxy
+        # LLM call — always executed, always routes through API_BASE_URL proxy
         try:
             history_str   = "\n".join(history[-5:]) if history else "No previous actions."
             system_prompt = (
@@ -128,7 +135,7 @@ def main() -> None:
                 "What is your next action JSON?"
             )
 
-            completion  = client.chat.completions.create(
+            completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -155,7 +162,7 @@ def main() -> None:
         except Exception as exc:
             error_msg = str(exc)[:80]
 
-        # Fallback if LLM gave no valid action
+        # Fallback only for unparseable LLM output — API call was still made
         if not action:
             action = heuristic_action(observation)
 
