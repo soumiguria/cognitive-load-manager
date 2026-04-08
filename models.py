@@ -62,6 +62,20 @@ def generate_tasks(level: str) -> list[Task]:
         ]
     return []
 
+def grader(trajectory: dict) -> float:
+    """
+    OpenEnv-compatible grader callable (single-argument signature).
+
+    Wraps deterministic_grader for use with the openenv-core task evaluation
+    framework. The trajectory dict should contain keys: tasks, time_step, energy.
+    """
+    raw_tasks = trajectory.get("tasks", [])
+    time_step_val = trajectory.get("time_step", 50)
+    final_energy_val = trajectory.get("energy", 0.5)
+    task_objs = [Task(**t) if isinstance(t, dict) else t for t in raw_tasks]
+    return deterministic_grader(task_objs, time_step_val, final_energy_val)
+
+
 def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float) -> float:
     """
     A deterministic grader returning 0.0-1.0 based on:
