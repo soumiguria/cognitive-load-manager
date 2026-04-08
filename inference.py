@@ -28,14 +28,19 @@ def post_json(url: str, payload: dict) -> dict:
     except urllib.error.HTTPError as e:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
+# ── Environment variables ────────────────────────────────────────────────────
+# API_BASE_URL and API_KEY are injected by the hackathon LiteLLM proxy.
+# HF_TOKEN is kept as a fallback for local testing only.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+
+# Prefer the hackathon-injected API_KEY; fall back to HF_TOKEN for local runs
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "")
 
 TASK_NAME = "schedule-optimization"
 BENCHMARK = "cognitive-load-manager"
-SUCCESS_SCORE_THRESHOLD = 0.5  # Need 50% score basically
+SUCCESS_SCORE_THRESHOLD = 0.5
 MAX_STEPS = 50
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -54,16 +59,15 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def main():
-    # OpenAI client mapping to Hugging Face router, requiring HF_TOKEN
-    client = None
-    if HF_TOKEN:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    # Always initialise the OpenAI client using the proxy URL and API key.
+    # The hackathon validator requires ALL LLM calls to go through API_BASE_URL
+    # with the provided API_KEY — never bypass this with hardcoded credentials.
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    # Initialize Environment
     task_id = os.getenv("CLM_LEVEL", "hard")
-    
+
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-    
+
     # 1. Reset Environment
     try:
         data = post_json(f"{ENV_BASE_URL}/reset", {"task_id": task_id})
@@ -71,20 +75,20 @@ def main():
         log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:50])
         log_end(success=False, steps=0, score=0.0, rewards=[])
         return
-        
+
     session_id = data["session_id"]
     observation = data["observation"]
-    
+
     done = False
     step = 0
     rewards = []
     history = []
     info = {}
-    
+
     while not done and step < MAX_STEPS:
         step += 1
-        
-        # 2. Extract action via OpenAI interface (pointing to HF)
+
+        # 2. Get next action from LLM via the hackathon proxy
         history_str = "\n".join(history[-5:]) if history else "No previous actions."
         system_prompt = """
 You are an AI task scheduler managing cognitive load.
@@ -106,52 +110,53 @@ What is your next action JSON?
 """
         action = None
         error_msg = None
-        
-        if client:
-            try:
-                completion = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": system_prompt.strip()},
-                        {"role": "user", "content": user_prompt.strip()}
-                    ],
-                    temperature=0.1,
-                    max_tokens=150
-                )
-                action_text = (completion.choices[0].message.content or "").strip()
-                # strip potential code blocks if model hallucinates them
-                if action_text.startswith("```json"): action_text = action_text[7:]
-                if action_text.endswith("```"): action_text = action_text[:-3]
-                
-                start_idx = action_text.find("{")
-                end_idx = action_text.rfind("}")
-                if start_idx != -1 and end_idx != -1:
-                    json_str = action_text[start_idx:end_idx+1]
-                    action = json.loads(json_str)
-            except Exception as e:
-                error_msg = str(e)[:50]
-        
-        # Fallback heuristic logic if action could not be parsed
+
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt.strip()},
+                    {"role": "user", "content": user_prompt.strip()}
+                ],
+                temperature=0.1,
+                max_tokens=150
+            )
+            action_text = (completion.choices[0].message.content or "").strip()
+
+            # Strip accidental markdown code fences
+            if action_text.startswith("```json"):
+                action_text = action_text[7:]
+            if action_text.startswith("```"):
+                action_text = action_text[3:]
+            if action_text.endswith("```"):
+                action_text = action_text[:-3]
+
+            start_idx = action_text.find("{")
+            end_idx = action_text.rfind("}")
+            if start_idx != -1 and end_idx != -1:
+                action = json.loads(action_text[start_idx:end_idx + 1])
+        except Exception as e:
+            error_msg = str(e)[:50]
+
+        # Fallback heuristic only if LLM call failed / returned unparseable output
         if not action:
             tasks = observation.get("tasks", [])
             incomp = [t for t in tasks if t.get("progress", 0.0) < 1.0]
-            if observation.get("visible_state", {}).get("fatigue_level") == "high":
+            if observation.get("visible_state", {}).get("fatigue_level") in ("high", "medium"):
                 action = {"type": "break"}
             elif incomp:
                 action = {"type": "work", "task_id": incomp[0]["id"]}
             else:
                 action = {"type": "delay"}
 
-        # Stringify action densely for stdout formatting
         action_str = json.dumps(action).replace(" ", "")
-        
-        # 3. Process action in Env
+
+        # 3. Step the environment
         try:
             step_data = post_json(f"{ENV_BASE_URL}/step", {
                 "session_id": session_id,
                 "action": action
             })
-            
             observation = step_data["observation"]
             reward = step_data.get("reward", 0.0)
             done = step_data.get("done", False)
@@ -160,7 +165,7 @@ What is your next action JSON?
             reward = 0.0
             done = True
             error_msg = error_msg or str(e)[:50]
-            
+
         rewards.append(reward)
         history.append(f"Step {step} Action: {action_str} -> Reward: {reward}")
         log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
