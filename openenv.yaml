@@ -30,7 +30,10 @@ schema:
 tasks:
   - id: easy
     description: "2 tasks, no interruptions"
+    grader: "deterministic_grader"
   - id: medium
     description: "5 tasks, deadlines"
+    grader: "deterministic_grader"
   - id: hard
     description: "8 tasks, interruptions, hidden fatigue"
+    grader: "deterministic_grader"
