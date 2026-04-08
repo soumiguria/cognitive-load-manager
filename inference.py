@@ -29,10 +29,10 @@ def post_json(url: str, payload: dict) -> dict:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
 # ── Environment variables ────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-HF_TOKEN = os.getenv("HF_TOKEN")
-
-API_KEY = HF_TOKEN or os.getenv("API_KEY")
+# The hackathon validator INJECTS API_BASE_URL and API_KEY into the environment.
+# We MUST use those values directly — never override them with HF_TOKEN or defaults.
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 if not API_KEY:
     raise ValueError("API_KEY environment variable is required")
 
