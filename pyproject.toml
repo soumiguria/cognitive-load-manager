@@ -7,12 +7,16 @@ name = "cognitive-load-manager"
 version = "0.1.0"
 description = "Cognitive Load Manager Environment implementation"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
     "openai",
     "requests",
-    "python-dotenv"
+    "python-dotenv",
+    "openenv-core>=0.2.0"
 ]
+
+[project.scripts]
+server = "server.app:main"
