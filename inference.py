@@ -29,12 +29,21 @@ def post_json(url: str, payload: dict) -> dict:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
 # ── Environment variables ────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-HF_TOKEN = os.getenv("HF_TOKEN")
+# API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+# HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_KEY = HF_TOKEN or os.getenv("API_KEY")
+# API_KEY = HF_TOKEN or os.getenv("API_KEY")
+# if not API_KEY:
+#     raise ValueError("API_KEY environment variable is required")
+
+API_BASE_URL = os.getenv("API_BASE_URL")
+API_KEY = os.getenv("API_KEY")
+
+if not API_BASE_URL:
+    raise ValueError("API_BASE_URL must be set")
+
 if not API_KEY:
-    raise ValueError("API_KEY environment variable is required")
+    raise ValueError("API_KEY must be set")
 
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
