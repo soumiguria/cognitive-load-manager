@@ -30,13 +30,30 @@ def post_json(url: str, payload: dict) -> dict:
 
 # ── Environment variables ────────────────────────────────────────────────────
 # API_BASE_URL and API_KEY are injected by the hackathon LiteLLM proxy.
-# HF_TOKEN is kept as a fallback for local testing only.
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+# ALL LLM calls MUST go through this proxy — do not fall back to other providers.
+API_BASE_URL = os.getenv("API_BASE_URL")
+if not API_BASE_URL:
+    raise RuntimeError(
+        "API_BASE_URL environment variable is not set. "
+        "The hackathon validator requires all LLM calls to go through the LiteLLM proxy."
+    )
+
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
-# Prefer the hackathon-injected API_KEY; fall back to HF_TOKEN for local runs
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "")
+# API_KEY must be the hackathon-injected key — HF_TOKEN must NOT be used as a
+# fallback because that would route calls outside the LiteLLM proxy.
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    # Allow HF_TOKEN only for local development (no proxy validation)
+    API_KEY = os.getenv("HF_TOKEN", "")
+    if API_KEY:
+        import warnings
+        warnings.warn(
+            "API_KEY not set; falling back to HF_TOKEN for local development. "
+            "Calls will NOT go through the LiteLLM proxy.",
+            stacklevel=2,
+        )
 
 TASK_NAME = "schedule-optimization"
 BENCHMARK = "cognitive-load-manager"
