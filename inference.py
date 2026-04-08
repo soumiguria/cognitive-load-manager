@@ -1,3 +1,344 @@
+# # import os
+# # import json
+# # import urllib.request
+# # import urllib.error
+# # from typing import List, Optional
+
+# # try:
+# #     from dotenv import load_dotenv
+# #     load_dotenv()
+# # except ImportError:
+# #     pass
+
+# # # /// script
+# # # requires-python = ">=3.11"
+# # # dependencies = [
+# # #     "openai",
+# # # ]
+# # # ///
+
+# # from openai import OpenAI
+
+# # def post_json(url: str, payload: dict) -> dict:
+# #     data = json.dumps(payload).encode("utf-8")
+# #     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+# #     try:
+# #         with urllib.request.urlopen(req) as res:
+# #             return json.loads(res.read().decode("utf-8"))
+# #     except urllib.error.HTTPError as e:
+# #         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
+
+# # # ── Environment variables ────────────────────────────────────────────────────
+# # # API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+# # # HF_TOKEN = os.getenv("HF_TOKEN")
+
+# # # API_KEY = HF_TOKEN or os.getenv("API_KEY")
+# # # if not API_KEY:
+# # #     raise ValueError("API_KEY environment variable is required")
+
+# # API_BASE_URL = os.environ.get("API_BASE_URL")
+# # API_KEY = os.environ.get("API_KEY")
+# # MODEL_NAME = os.environ.get("MODEL_NAME")
+# # ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
+
+# # if not API_BASE_URL:
+# #     raise ValueError("API_BASE_URL must be set")
+
+# # if not API_KEY:
+# #     raise ValueError("API_KEY must be set")
+
+# # MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+# # ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+
+# # TASK_NAME = "schedule-optimization"
+# # BENCHMARK = "cognitive-load-manager"
+# # SUCCESS_SCORE_THRESHOLD = 0.5
+# # MAX_STEPS = 50
+
+# # def log_start(task: str, env: str, model: str) -> None:
+# #     print(f"[START] task={task} env={env} model={model}", flush=True)
+
+# # def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+# #     error_val = error if error else "null"
+# #     done_val = str(done).lower()
+# #     print(
+# #         f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+# #         flush=True,
+# #     )
+
+# # def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+# #     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+# #     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+# # def main():
+# #     # Always initialise the OpenAI client using the proxy URL and API key.
+# #     # The hackathon validator requires ALL LLM calls to go through API_BASE_URL
+# #     # with the provided API_KEY — never bypass this with hardcoded credentials.
+# #     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+# #     task_id = os.getenv("CLM_LEVEL", "hard")
+
+# #     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
+# #     # 1. Reset Environment
+# #     try:
+# #         data = post_json(f"{ENV_BASE_URL}/reset", {"task_id": task_id})
+# #     except Exception as e:
+# #         log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:50])
+# #         log_end(success=False, steps=0, score=0.0, rewards=[])
+# #         return
+
+# #     session_id = data["session_id"]
+# #     observation = data["observation"]
+
+# #     done = False
+# #     step = 0
+# #     rewards = []
+# #     history = []
+# #     info = {}
+
+# #     while not done and step < MAX_STEPS:
+# #         step += 1
+
+# #         # 2. Get next action from LLM via the hackathon proxy
+# #         history_str = "\n".join(history[-5:]) if history else "No previous actions."
+# #         system_prompt = """
+# # You are an AI task scheduler managing cognitive load.
+# # CRITICAL RULES:
+# # 1. If "fatigue_level" is "high" or "medium", output {"type": "break"}. Do NOT work until fatigue is "low".
+# # 2. If "stress_warning" is true, {"type": "break"} reduces stress safely.
+# # 3. Find tasks where "progress" < 1.0. Output {"type": "work", "task_id": "<id>"}. Do NOT work on 1.0 tasks.
+# # 4. Respond ONLY with raw JSON format. No markdown blocks.
+# # Valid actions: {"type": "work", "task_id": "id"}, {"type": "break"}, {"type": "delay"}, {"type": "switch", "task_id": "id"}
+# # """
+# #         user_prompt = f"""
+# # Previous 5 Steps History:
+# # {history_str}
+
+# # Current Observation:
+# # {json.dumps(observation, indent=2)}
+
+# # What is your next action JSON?
+# # """
+# #         action = None
+# #         error_msg = None
+
+# #         try:
+# #             completion = client.chat.completions.create(
+# #                 model=MODEL_NAME,
+# #                 messages=[
+# #                     {"role": "system", "content": system_prompt.strip()},
+# #                     {"role": "user", "content": user_prompt.strip()}
+# #                 ],
+# #                 temperature=0.1,
+# #                 max_tokens=150
+# #             )
+# #             action_text = (completion.choices[0].message.content or "").strip()
+
+# #             # Strip accidental markdown code fences
+# #             if action_text.startswith("```json"):
+# #                 action_text = action_text[7:]
+# #             if action_text.startswith("```"):
+# #                 action_text = action_text[3:]
+# #             if action_text.endswith("```"):
+# #                 action_text = action_text[:-3]
+
+# #             start_idx = action_text.find("{")
+# #             end_idx = action_text.rfind("}")
+# #             if start_idx != -1 and end_idx != -1:
+# #                 action = json.loads(action_text[start_idx:end_idx + 1])
+# #         except Exception as e:
+# #             error_msg = str(e)[:50]
+
+# #         # Fallback heuristic only if LLM call failed / returned unparseable output
+# #         if not action:
+# #             tasks = observation.get("tasks", [])
+# #             incomp = [t for t in tasks if t.get("progress", 0.0) < 1.0]
+# #             if observation.get("visible_state", {}).get("fatigue_level") in ("high", "medium"):
+# #                 action = {"type": "break"}
+# #             elif incomp:
+# #                 action = {"type": "work", "task_id": incomp[0]["id"]}
+# #             else:
+# #                 action = {"type": "delay"}
+
+# #         action_str = json.dumps(action).replace(" ", "")
+
+# #         # 3. Step the environment
+# #         try:
+# #             step_data = post_json(f"{ENV_BASE_URL}/step", {
+# #                 "session_id": session_id,
+# #                 "action": action
+# #             })
+# #             observation = step_data["observation"]
+# #             reward = step_data.get("reward", 0.0)
+# #             done = step_data.get("done", False)
+# #             info = step_data.get("info", {})
+# #         except Exception as e:
+# #             reward = 0.0
+# #             done = True
+# #             error_msg = error_msg or str(e)[:50]
+
+# #         rewards.append(reward)
+# #         history.append(f"Step {step} Action: {action_str} -> Reward: {reward}")
+# #         log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+
+# #     score = info.get("final_score", 0.0)
+# #     success = score >= SUCCESS_SCORE_THRESHOLD
+# #     log_end(success=success, steps=step, score=score, rewards=rewards)
+
+# # if __name__ == "__main__":
+# #     main()
+
+
+
+# import os
+# import json
+# import urllib.request
+# import urllib.error
+# from typing import List, Optional
+
+# from openai import OpenAI
+
+
+# # ── HTTP Helper ──────────────────────────────────────────────────────────────
+# def post_json(url: str, payload: dict) -> dict:
+#     data = json.dumps(payload).encode("utf-8")
+#     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+#     with urllib.request.urlopen(req) as res:
+#         return json.loads(res.read().decode("utf-8"))
+
+
+# # ── STRICT ENV (NO FALLBACKS) ────────────────────────────────────────────────
+# API_BASE_URL = os.environ.get("API_BASE_URL")
+# API_KEY = os.environ.get("API_KEY")
+# MODEL_NAME = os.environ.get("MODEL_NAME")
+
+# if not API_BASE_URL:
+#     raise ValueError("API_BASE_URL must be set")
+# if not API_KEY:
+#     raise ValueError("API_KEY must be set")
+# if not MODEL_NAME:
+#     raise ValueError("MODEL_NAME must be set")
+
+# ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
+
+
+# # ── CONFIG ───────────────────────────────────────────────────────────────────
+# TASK_NAME = "schedule-optimization"
+# BENCHMARK = "cognitive-load-manager"
+# SUCCESS_SCORE_THRESHOLD = 0.5
+# MAX_STEPS = 50
+
+
+# # ── LOGGING ──────────────────────────────────────────────────────────────────
+# def log_start(task: str, env: str, model: str):
+#     print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+# def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]):
+#     error_val = error if error else "null"
+#     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}", flush=True)
+
+
+# def log_end(success: bool, steps: int, score: float, rewards: List[float]):
+#     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+#     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+
+# # ── MAIN ─────────────────────────────────────────────────────────────────────
+# def main():
+#     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+#     log_start(TASK_NAME, BENCHMARK, MODEL_NAME)
+
+#     # RESET
+#     try:
+#         data = post_json(f"{ENV_BASE_URL}/reset", {"task_id": "hard"})
+#     except Exception as e:
+#         log_step(0, "reset", 0.0, True, str(e)[:50])
+#         log_end(False, 0, 0.0, [])
+#         return
+
+#     session_id = data["session_id"]
+#     observation = data["observation"]
+
+#     rewards = []
+#     done = False
+#     step = 0
+#     info = {}
+
+#     while not done and step < MAX_STEPS:
+#         step += 1
+
+#         action = None
+#         error_msg = None
+
+#         # 🔥 FORCE LLM CALL (NO SKIP)
+#         try:
+#             response = client.responses.create(
+#                 model=MODEL_NAME,
+#                 input=f"Return ONLY JSON action for this observation:\n{json.dumps(observation)}",
+#                 max_output_tokens=100,
+#                 temperature=0.1
+#             )
+
+#             # Extract text safely
+#             text = ""
+#             if response.output:
+#                 for item in response.output:
+#                     for part in item.content:
+#                         if hasattr(part, "text"):
+#                             text += part.text
+
+#             text = text.strip()
+
+#             start = text.find("{")
+#             end = text.rfind("}")
+#             if start != -1 and end != -1:
+#                 action = json.loads(text[start:end+1])
+
+#         except Exception as e:
+#             error_msg = str(e)[:50]
+
+#         # fallback AFTER LLM attempt
+#         if not action:
+#             tasks = observation.get("tasks", [])
+#             if tasks:
+#                 action = {"type": "work", "task_id": tasks[0]["id"]}
+#             else:
+#                 action = {"type": "break"}
+
+#         action_str = json.dumps(action).replace(" ", "")
+
+#         # STEP ENV
+#         try:
+#             step_data = post_json(
+#                 f"{ENV_BASE_URL}/step",
+#                 {"session_id": session_id, "action": action}
+#             )
+#             observation = step_data["observation"]
+#             reward = step_data.get("reward", 0.0)
+#             done = step_data.get("done", False)
+#             info = step_data.get("info", {})
+#         except Exception as e:
+#             reward = 0.0
+#             done = True
+#             error_msg = error_msg or str(e)[:50]
+
+#         rewards.append(reward)
+
+#         log_step(step, action_str, reward, done, error_msg)
+
+#     score = info.get("final_score", 0.0)
+#     success = score >= SUCCESS_SCORE_THRESHOLD
+
+#     log_end(success, step, score, rewards)
+
+
+# if __name__ == "__main__":
+#     main()
+
+
 import os
 import json
 import urllib.request
@@ -19,6 +360,7 @@ except ImportError:
 
 from openai import OpenAI
 
+
 def post_json(url: str, payload: dict) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -28,35 +370,30 @@ def post_json(url: str, payload: dict) -> dict:
     except urllib.error.HTTPError as e:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
-# ── Environment variables ────────────────────────────────────────────────────
-# API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-# HF_TOKEN = os.getenv("HF_TOKEN")
 
-# API_KEY = HF_TOKEN or os.getenv("API_KEY")
-# if not API_KEY:
-#     raise ValueError("API_KEY environment variable is required")
-
+# ── STRICT ENV (NO FALLBACKS) ────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL")
 API_KEY = os.environ.get("API_KEY")
 MODEL_NAME = os.environ.get("MODEL_NAME")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 
 if not API_BASE_URL:
     raise ValueError("API_BASE_URL must be set")
-
 if not API_KEY:
     raise ValueError("API_KEY must be set")
+if not MODEL_NAME:
+    raise ValueError("MODEL_NAME must be set")
 
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 
 TASK_NAME = "schedule-optimization"
 BENCHMARK = "cognitive-load-manager"
 SUCCESS_SCORE_THRESHOLD = 0.5
 MAX_STEPS = 50
 
+
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
+
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
@@ -66,14 +403,14 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
         flush=True,
     )
 
+
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
+
 def main():
-    # Always initialise the OpenAI client using the proxy URL and API key.
-    # The hackathon validator requires ALL LLM calls to go through API_BASE_URL
-    # with the provided API_KEY — never bypass this with hardcoded credentials.
+    # ALWAYS use API_BASE_URL + API_KEY from environment — never bypass the proxy.
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     task_id = os.getenv("CLM_LEVEL", "hard")
@@ -97,64 +434,64 @@ def main():
     history = []
     info = {}
 
-    while not done and step < MAX_STEPS:
-        step += 1
-
-        # 2. Get next action from LLM via the hackathon proxy
-        history_str = "\n".join(history[-5:]) if history else "No previous actions."
-        system_prompt = """
-You are an AI task scheduler managing cognitive load.
+    system_prompt = """You are an AI task scheduler managing cognitive load.
 CRITICAL RULES:
 1. If "fatigue_level" is "high" or "medium", output {"type": "break"}. Do NOT work until fatigue is "low".
 2. If "stress_warning" is true, {"type": "break"} reduces stress safely.
 3. Find tasks where "progress" < 1.0. Output {"type": "work", "task_id": "<id>"}. Do NOT work on 1.0 tasks.
-4. Respond ONLY with raw JSON format. No markdown blocks.
-Valid actions: {"type": "work", "task_id": "id"}, {"type": "break"}, {"type": "delay"}, {"type": "switch", "task_id": "id"}
-"""
-        user_prompt = f"""
-Previous 5 Steps History:
-{history_str}
+4. Respond ONLY with raw JSON. No markdown, no explanation.
+Valid actions: {"type": "work", "task_id": "id"}, {"type": "break"}, {"type": "delay"}, {"type": "switch", "task_id": "id"}"""
 
-Current Observation:
-{json.dumps(observation, indent=2)}
+    while not done and step < MAX_STEPS:
+        step += 1
 
-What is your next action JSON?
-"""
         action = None
         error_msg = None
 
+        # 2. 🔥 FORCE LLM CALL via proxy — uses client.responses.create (required by validator)
+        history_str = "\n".join(history[-5:]) if history else "No previous actions."
+        user_prompt = f"{system_prompt}\n\nPrevious 5 Steps:\n{history_str}\n\nCurrent Observation:\n{json.dumps(observation)}\n\nReturn ONLY a JSON action:"
+
         try:
-            completion = client.chat.completions.create(
+            response = client.responses.create(
                 model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt.strip()},
-                    {"role": "user", "content": user_prompt.strip()}
-                ],
+                input=user_prompt,
+                max_output_tokens=100,
                 temperature=0.1,
-                max_tokens=150
             )
-            action_text = (completion.choices[0].message.content or "").strip()
 
-            # Strip accidental markdown code fences
-            if action_text.startswith("```json"):
-                action_text = action_text[7:]
-            if action_text.startswith("```"):
-                action_text = action_text[3:]
-            if action_text.endswith("```"):
-                action_text = action_text[:-3]
+            # Extract text from response safely
+            text = ""
+            if response.output:
+                for item in response.output:
+                    for part in item.content:
+                        if hasattr(part, "text"):
+                            text += part.text
 
-            start_idx = action_text.find("{")
-            end_idx = action_text.rfind("}")
+            text = text.strip()
+
+            # Strip markdown fences if present
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+
+            start_idx = text.find("{")
+            end_idx = text.rfind("}")
             if start_idx != -1 and end_idx != -1:
-                action = json.loads(action_text[start_idx:end_idx + 1])
+                action = json.loads(text[start_idx:end_idx + 1])
+
         except Exception as e:
             error_msg = str(e)[:50]
 
-        # Fallback heuristic only if LLM call failed / returned unparseable output
+        # Fallback heuristic ONLY if LLM call failed / returned unparseable output
         if not action:
             tasks = observation.get("tasks", [])
             incomp = [t for t in tasks if t.get("progress", 0.0) < 1.0]
-            if observation.get("visible_state", {}).get("fatigue_level") in ("high", "medium"):
+            fatigue = observation.get("visible_state", {}).get("fatigue_level")
+            if fatigue in ("high", "medium"):
                 action = {"type": "break"}
             elif incomp:
                 action = {"type": "work", "task_id": incomp[0]["id"]}
@@ -167,7 +504,7 @@ What is your next action JSON?
         try:
             step_data = post_json(f"{ENV_BASE_URL}/step", {
                 "session_id": session_id,
-                "action": action
+                "action": action,
             })
             observation = step_data["observation"]
             reward = step_data.get("reward", 0.0)
@@ -185,6 +522,7 @@ What is your next action JSON?
     score = info.get("final_score", 0.0)
     success = score >= SUCCESS_SCORE_THRESHOLD
     log_end(success=success, steps=step, score=score, rewards=rewards)
+
 
 if __name__ == "__main__":
     main()
