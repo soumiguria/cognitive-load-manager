@@ -56,7 +56,10 @@ def read_root():
     }
 
 @app.post("/reset", response_model=ResetResponse)
-def reset_env(req: ResetRequest):
+def reset_env(req: Optional[ResetRequest] = None):
+    if req is None:
+        req = ResetRequest()
+        
     if req.level not in ["easy", "medium", "hard"]:
         raise HTTPException(status_code=400, detail="Invalid level")
         
