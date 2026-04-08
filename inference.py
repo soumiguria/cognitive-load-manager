@@ -36,8 +36,10 @@ def post_json(url: str, payload: dict) -> dict:
 # if not API_KEY:
 #     raise ValueError("API_KEY environment variable is required")
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-API_KEY = os.getenv("API_KEY")
+API_BASE_URL = os.environ.get("API_BASE_URL")
+API_KEY = os.environ.get("API_KEY")
+MODEL_NAME = os.environ.get("MODEL_NAME")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 
 if not API_BASE_URL:
     raise ValueError("API_BASE_URL must be set")
