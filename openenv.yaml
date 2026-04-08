@@ -41,11 +41,23 @@ graders:
     fn: "models.deterministic_grader"
 tasks:
   - id: easy
-    description: "2 tasks, no interruptions"
-    grader: "deterministic_grader"
+    difficulty: easy
+    description: "2 easy tasks with no deadlines. Agent must complete both tasks without burning out."
+    max_steps: 50
+    grader:
+      fn: "models.deterministic_grader"
+      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
   - id: medium
-    description: "5 tasks, deadlines"
-    grader: "deterministic_grader"
+    difficulty: medium
+    description: "5 medium tasks with deadlines. Agent must balance speed and energy to meet deadlines."
+    max_steps: 50
+    grader:
+      fn: "models.deterministic_grader"
+      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
   - id: hard
-    description: "8 tasks, interruptions, hidden fatigue"
-    grader: "deterministic_grader"
+    difficulty: hard
+    description: "8 hard tasks with tight deadlines and hidden fatigue mechanics. Agent must manage stress and interruptions."
+    max_steps: 50
+    grader:
+      fn: "models.deterministic_grader"
+      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
