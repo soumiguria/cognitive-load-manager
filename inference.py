@@ -1,11 +1,32 @@
 import os
 import json
-import requests
+import urllib.request
+import urllib.error
 from typing import List, Optional
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "openai",
+# ]
+# ///
+
 from openai import OpenAI
 
-load_dotenv()
+def post_json(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
@@ -45,9 +66,7 @@ def main():
     
     # 1. Reset Environment
     try:
-        res = requests.post(f"{ENV_BASE_URL}/reset", json={"level": level})
-        res.raise_for_status()
-        data = res.json()
+        data = post_json(f"{ENV_BASE_URL}/reset", {"level": level})
     except Exception as e:
         log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:50])
         log_end(success=False, steps=0, score=0.0, rewards=[])
@@ -128,12 +147,10 @@ What is your next action JSON?
         
         # 3. Process action in Env
         try:
-            res = requests.post(f"{ENV_BASE_URL}/step", json={
+            step_data = post_json(f"{ENV_BASE_URL}/step", {
                 "session_id": session_id,
                 "action": action
             })
-            res.raise_for_status()
-            step_data = res.json()
             
             observation = step_data["observation"]
             reward = step_data.get("reward", 0.0)
