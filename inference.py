@@ -29,11 +29,10 @@ def post_json(url: str, payload: dict) -> dict:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
 # ── Environment variables ────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL")
-if not API_BASE_URL:
-    raise ValueError("API_BASE_URL environment variable is required")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = HF_TOKEN or os.getenv("API_KEY")
 if not API_KEY:
     raise ValueError("API_KEY environment variable is required")
 
