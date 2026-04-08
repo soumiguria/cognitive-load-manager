@@ -187,6 +187,8 @@ class CLMEnvironment:
                 else:
                     reward += 1.0
                     
+        reward = max(0.0, min(0.99, float(reward)))
+                    
         return self._get_observation(), reward, done, self.state.model_dump()
         
     def state_dict(self) -> dict:
