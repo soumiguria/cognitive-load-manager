@@ -33,8 +33,8 @@ class ResetResponse(BaseModel):
     observation: Observation
 
 class StepRequest(BaseModel):
-    session_id: str
-    action: Action
+    session_id: str = "default"
+    action: Optional[Action] = None
 
 class StepResponse(BaseModel):
     observation: Observation
@@ -73,9 +73,17 @@ def reset_env(req: Optional[ResetRequest] = None):
     return ResetResponse(session_id=sess_id, observation=obs)
 
 @app.post("/step", response_model=StepResponse)
-def step_env(req: StepRequest):
+def step_env(req: Optional[StepRequest] = None):
+    if req is None:
+        req = StepRequest()
+    if req.action is None:
+        req.action = Action(type="work")
+        
     if req.session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        tasks = generate_tasks("easy")
+        env = CLMEnvironment(tasks=tasks, max_steps=50)
+        env.reset()
+        sessions[req.session_id] = env
         
     env = sessions[req.session_id]
     obs, reward, done, info = env.step(req.action)
@@ -87,8 +95,14 @@ def step_env(req: StepRequest):
     return StepResponse(observation=obs, reward=reward, done=done, info=info)
 
 @app.get("/state")
-def get_state(session_id: str):
+def get_state(session_id: Optional[str] = "default"):
+    if session_id is None:
+        session_id = "default"
+        
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        tasks = generate_tasks("easy")
+        env = CLMEnvironment(tasks=tasks, max_steps=50)
+        env.reset()
+        sessions[session_id] = env
         
     return sessions[session_id].state_dict()
