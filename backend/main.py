@@ -254,13 +254,16 @@ class StepResponse(BaseModel):
 # Add the home route with details of all the other routes
 @app.get("/")
 def read_root():
-    return {"message": "Cognitive Load Manager is running 🚀"}
     routes = []
     for route in app.routes:
-        route_info = {"path": route.path, "name": getattr(route, "name", "")}
+        route_info = {
+            "path": route.path,
+            "name": getattr(route, "name", "")
+        }
         if hasattr(route, "methods"):
             route_info["methods"] = list(route.methods)
         routes.append(route_info)
+
     return {
         "message": "Cognitive Load Manager is running 🚀",
         "routes": routes
