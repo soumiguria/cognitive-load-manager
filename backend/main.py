@@ -25,7 +25,7 @@ app.add_middleware(
 sessions: Dict[str, CLMEnvironment] = {}
 
 class ResetRequest(BaseModel):
-    level: str = "easy"  # easy, medium, hard
+    task_id: str = "easy"  # easy, medium, hard
     session_id: Optional[str] = None
 
 class ResetResponse(BaseModel):
@@ -60,10 +60,10 @@ def reset_env(req: Optional[ResetRequest] = None):
     if req is None:
         req = ResetRequest()
         
-    if req.level not in ["easy", "medium", "hard"]:
-        raise HTTPException(status_code=400, detail="Invalid level")
+    if req.task_id not in ["easy", "medium", "hard"]:
+        raise HTTPException(status_code=400, detail="Invalid task_id")
         
-    tasks = generate_tasks(req.level)
+    tasks = generate_tasks(req.task_id)
     env = CLMEnvironment(tasks=tasks, max_steps=50) # Max 50 steps
     obs = env.reset()
     

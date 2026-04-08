@@ -60,13 +60,13 @@ def main():
         client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Initialize Environment
-    level = os.getenv("CLM_LEVEL", "hard")
+    task_id = os.getenv("CLM_LEVEL", "hard")
     
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     # 1. Reset Environment
     try:
-        data = post_json(f"{ENV_BASE_URL}/reset", {"level": level})
+        data = post_json(f"{ENV_BASE_URL}/reset", {"task_id": task_id})
     except Exception as e:
         log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:50])
         log_end(success=False, steps=0, score=0.0, rewards=[])

@@ -38,7 +38,7 @@ schema:
 graders:
   deterministic_grader:
     description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
-    fn: "deterministic_grader"
+    fn: "models.deterministic_grader"
 tasks:
   - id: easy
     description: "2 tasks, no interruptions"
