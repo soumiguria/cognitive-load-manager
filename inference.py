@@ -2,19 +2,19 @@
 
 import os
 import json
+import sys
 import urllib.request
 import urllib.error
 from typing import List, Optional
-from openai import OpenAI
 
-def post_json(url: str, payload: dict) -> dict:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req) as res:
-            return json.loads(res.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
+# ── Load .env for local development ──────────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not available in validator — env vars are injected directly
+
+from openai import OpenAI
 
 # ── Environment variables ────────────────────────────────────────────────────
 # The hackathon validator INJECTS API_BASE_URL and API_KEY into the environment.
@@ -22,10 +22,15 @@ def post_json(url: str, payload: dict) -> dict:
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 if not API_KEY:
-    raise RuntimeError("API_KEY not set — must use provided key")
+    print("WARNING: API_KEY not set. LLM calls will fail.", file=sys.stderr, flush=True)
+    API_KEY = "missing"
+
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
 
 print("DEBUG BASE URL:", API_BASE_URL, flush=True)
 print("DEBUG MODEL:", MODEL_NAME, flush=True)
+print("DEBUG ENV URL:", ENV_BASE_URL, flush=True)
 
 
 # ── CLIENT ─────────────────────────────────────────────────────
@@ -85,7 +90,7 @@ def main():
     while not done and step < MAX_STEPS:
         step += 1
 
-        # ── LLM CALL (STRICT, NO TRY/CATCH) ──
+        # ── LLM CALL ──
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
@@ -93,10 +98,18 @@ def main():
                     "role": "system",
                     "content": (
                         "You are an AI task scheduler managing human cognitive load.\n"
-                        "RULES:\n"
-                        "1. If fatigue_level is 'high' or 'medium' OR stress_warning true → break\n"
-                        "2. Otherwise pick earliest deadline incomplete task\n"
-                        "Return ONLY JSON."
+                        "You MUST respond with ONLY a JSON object (no markdown, no explanation).\n\n"
+                        "ACTION FORMAT: {\"type\": \"<action>\", \"task_id\": \"<id or null>\"}\n"
+                        "Valid types:\n"
+                        "  - \"work\"  : work on task_id (requires task_id)\n"
+                        "  - \"break\" : rest to recover energy (task_id: null)\n"
+                        "  - \"switch\": switch to a different task_id (requires task_id)\n"
+                        "  - \"delay\" : wait/do nothing (task_id: null)\n\n"
+                        "STRATEGY:\n"
+                        "1. If fatigue_level is 'high' OR stress_warning is true → {\"type\": \"break\", \"task_id\": null}\n"
+                        "2. If fatigue_level is 'medium' and stress is manageable → {\"type\": \"work\", \"task_id\": \"<earliest deadline incomplete task>\"}\n"
+                        "3. Otherwise → {\"type\": \"work\", \"task_id\": \"<earliest deadline incomplete task>\"}\n"
+                        "4. Pick incomplete tasks (progress < 1.0) with the earliest deadline first.\n"
                     ),
                 },
                 {
@@ -116,9 +129,14 @@ def main():
         if s != -1 and e != -1:
             try:
                 action = json.loads(action_text[s:e+1])
-            except:
+            except Exception:
                 action = {"type": "delay"}
         else:
+            action = {"type": "delay"}
+
+        # Validate action type
+        valid_types = {"work", "break", "switch", "delay"}
+        if action.get("type") not in valid_types:
             action = {"type": "delay"}
 
         action_str = json.dumps(action)
