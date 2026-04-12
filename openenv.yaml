@@ -8,10 +8,12 @@ description: Cognitive Load Manager (CLM) simulates human cognitive load (energy
 version: "1.0.0"
 
 endpoints:
-  health: /
+  health: /health
   reset:  /reset
   step:   /step
   state:  /state
+  grade:  /grader
+
 schema:
   observation:
     type: object
@@ -38,37 +40,27 @@ schema:
       task_id: { type: string, nullable: true }
   reward:
     type: number
-  graders:
-    type: object
-    properties:
-      deterministic_grader:
-        type: object
-        properties:
-          description: { type: string }
-          fn: { type: string }
-graders:
-  deterministic_grader:
-    description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
-    fn: "models.grader"
+
+scoring:
+  reward_range: [0.01, 0.99]
+  success_threshold: 0.5
+  score_formula: mean(step_rewards)
+
 tasks:
   - id: easy
     difficulty: easy
     description: "2 easy tasks with no deadlines. Agent must complete both tasks without burning out."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
+    grader: "models:grader"
+
   - id: medium
     difficulty: medium
     description: "5 medium tasks with deadlines. Agent must balance speed and energy to meet deadlines."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
+    grader: "models:grader"
+
   - id: hard
     difficulty: hard
     description: "8 hard tasks with tight deadlines and hidden fatigue mechanics. Agent must manage stress and interruptions."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency"
+    grader: "models:grader"
