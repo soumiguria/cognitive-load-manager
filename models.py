@@ -78,29 +78,32 @@ def grader(trajectory: dict) -> float:
 
 def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float) -> float:
     """
-    A deterministic grader returning 0.0-1.0 based on:
+    A deterministic grader returning a score strictly between 0 and 1 based on:
     - completion rate
-    - deadline adherence 
+    - deadline adherence
     - energy efficiency
+
+    Score is clamped to (0.01, 0.99) — never exactly 0.0 or 1.0.
     """
     if not tasks:
-        return 0.0
-        
+        return 0.01
+
     completion_rate = sum(t.progress for t in tasks) / len(tasks)
-    
+
     # penalty for missed deadlines
     missed_deadlines = 0
     for t in tasks:
         if t.deadline and time_step > t.deadline and t.progress < 1.0:
             missed_deadlines += 1
-            
+
     deadline_penalty = min(0.3, missed_deadlines * 0.1)
-    
+
     # energy efficiency
     energy_score = max(0.0, (final_energy - 0.1) * 0.2)
-    
+
     score = completion_rate * 0.8 - deadline_penalty + energy_score
-    return max(0.0, min(1.0, score))
+    # Clamp strictly between 0 and 1 — validator requires score in (0, 1) exclusive
+    return round(max(0.01, min(0.99, score)), 4)
 
 
 # ==========================================
@@ -201,7 +204,7 @@ class CLMEnvironment:
                 else:
                     reward += 1.0
                     
-        reward = max(0.0, min(0.99, float(reward)))
+        reward = round(max(0.01, min(0.99, float(reward))), 4)
                     
         return self._get_observation(), reward, done, self.state.model_dump()
         
