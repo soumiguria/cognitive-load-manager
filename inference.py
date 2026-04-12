@@ -29,9 +29,11 @@ def post_json(url: str, payload: dict) -> dict:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+# API_KEY is injected by the hackathon validator — MUST be used, not bypassed.
+API_KEY = os.getenv("API_KEY", os.getenv("HF_TOKEN", ""))
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN = os.getenv("HF_TOKEN")  # kept for local dev / backward compat
 
 TASK_NAME = "schedule-optimization"
 BENCHMARK = "cognitive-load-manager"
@@ -54,10 +56,9 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def main():
-    # OpenAI client mapping to Hugging Face router, requiring HF_TOKEN
-    client = None
-    if HF_TOKEN:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    # Initialize OpenAI client with the hackathon proxy.
+    # API_BASE_URL and API_KEY are injected by the validator — never bypass them.
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     # Initialize Environment
     task_id = os.getenv("CLM_LEVEL", "hard")
@@ -107,29 +108,28 @@ What is your next action JSON?
         action = None
         error_msg = None
         
-        if client:
-            try:
-                completion = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": system_prompt.strip()},
-                        {"role": "user", "content": user_prompt.strip()}
-                    ],
-                    temperature=0.1,
-                    max_tokens=150
-                )
-                action_text = (completion.choices[0].message.content or "").strip()
-                # strip potential code blocks if model hallucinates them
-                if action_text.startswith("```json"): action_text = action_text[7:]
-                if action_text.endswith("```"): action_text = action_text[:-3]
-                
-                start_idx = action_text.find("{")
-                end_idx = action_text.rfind("}")
-                if start_idx != -1 and end_idx != -1:
-                    json_str = action_text[start_idx:end_idx+1]
-                    action = json.loads(json_str)
-            except Exception as e:
-                error_msg = str(e)[:50]
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt.strip()},
+                    {"role": "user", "content": user_prompt.strip()}
+                ],
+                temperature=0.1,
+                max_tokens=150
+            )
+            action_text = (completion.choices[0].message.content or "").strip()
+            # strip potential code blocks if model hallucinates them
+            if action_text.startswith("```json"): action_text = action_text[7:]
+            if action_text.endswith("```"): action_text = action_text[:-3]
+            
+            start_idx = action_text.find("{")
+            end_idx = action_text.rfind("}")
+            if start_idx != -1 and end_idx != -1:
+                json_str = action_text[start_idx:end_idx+1]
+                action = json.loads(json_str)
+        except Exception as e:
+            error_msg = str(e)[:50]
         
         # Fallback heuristic logic if action could not be parsed
         if not action:
