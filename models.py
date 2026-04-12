@@ -78,12 +78,12 @@ def grader(trajectory: dict) -> float:
 
 def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float) -> float:
     """
-    A deterministic grader returning a score strictly between 0 and 1 based on:
+    A deterministic grader returning a score STRICTLY between 0 and 1 based on:
     - completion rate
     - deadline adherence
     - energy efficiency
 
-    Score is clamped to (0.01, 0.99) — never exactly 0.0 or 1.0.
+    Score is clamped to [0.01, 0.99] — never exactly 0.0 or 1.0.
     """
     if not tasks:
         return 0.01
@@ -102,7 +102,7 @@ def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float)
     energy_score = max(0.0, (final_energy - 0.1) * 0.2)
 
     score = completion_rate * 0.8 - deadline_penalty + energy_score
-    # Clamp strictly between 0 and 1 — validator requires score in (0, 1) exclusive
+    # Validator requires score strictly in (0, 1) — clamp to [0.01, 0.99]
     return round(max(0.01, min(0.99, score)), 4)
 
 

@@ -106,7 +106,10 @@ class CLMEnvWrapper(Environment):
                 self._env.state.energy,
             )
             info["final_score"] = self._final_score
-        return self._to_oe_obs(obs, done=done, reward=float(reward), info=info)
+            # Validator reads the reward of the terminal step as the task score.
+            # Use the grader score (strictly in (0.01, 0.99)) — not per-step reward.
+            return self._to_oe_obs(obs, done=True, reward=self._final_score, info=info)
+        return self._to_oe_obs(obs, done=False, reward=float(reward), info=info)
 
     @property
     def state(self) -> CLMState:
