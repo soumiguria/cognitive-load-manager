@@ -208,7 +208,9 @@ class CLMEnvironment:
                 else:
                     reward += 1.0
                     
-        reward = max(0.01, min(0.99, float(reward)))
+        # Clamp intermediate rewards to (-1.0, 1.0) but preserve negative signal.
+        # Only at episode end do we report a 0.01–0.99 final score.
+        reward = max(-1.0, min(1.0, float(reward)))
                     
         return self._get_observation(), reward, done, self.state.model_dump()
         

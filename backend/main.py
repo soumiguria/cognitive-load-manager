@@ -50,25 +50,22 @@ def _safe_score(raw: float) -> float:
 
 
 def _grade_task(difficulty: str) -> dict:
-    """Run deterministic grader on a fresh environment for the given difficulty."""
+    """Run heuristic agent to episode completion and score the final state."""
     try:
-        tasks = generate_tasks(difficulty)
-        env = CLMEnvironment(tasks=tasks, max_steps=50)
-        env.reset()
-        score = deterministic_grader(
-            env.state.tasks,
-            env.state.time_step,
-            env.state.energy,
-        )
+        from grader.clm_graders import EasyGrader, MediumGrader, HardGrader
+        grader_map = {"easy": EasyGrader, "medium": MediumGrader, "hard": HardGrader}
+        g = grader_map.get(difficulty, EasyGrader)()
+        score, done, msg = g.grade()
         score = _safe_score(score)
     except Exception:
         score = _SCORE_MIN
+        msg = f"Grader error for {difficulty}"
     return {
         "task_id": difficulty,
         "reward": score,
         "score": score,
         "done": False,
-        "grader_message": f"CLM deterministic grader for difficulty={difficulty}",
+        "grader_message": msg,
     }
 
 
