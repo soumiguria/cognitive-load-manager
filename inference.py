@@ -12,14 +12,17 @@ except ImportError:
 
 from openai import OpenAI
 
-# ── Credentials — matches the EXACT pattern the validator expects ─────────────
-# HF Spaces auto-inject HF_TOKEN; validator also injects API_BASE_URL + API_KEY.
-# We try HF_TOKEN first (same order as the accepted reference repo).
+# ── Credentials ───────────────────────────────────────────────────────────────
+# HF Spaces auto-inject HF_TOKEN; validator injects API_BASE_URL + API_KEY.
+# Try HF_TOKEN first — same pattern as the accepted reference repo.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://anonymousdevil-cognitive-load-manager.hf.space")
+HF_TOKEN     = os.getenv("HF_TOKEN")                          # auto-injected by HF Space
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")  # HF_TOKEN takes priority
+ENV_BASE_URL = os.getenv(
+    "ENV_BASE_URL",
+    "https://anonymousdevil-cognitive-load-manager.hf.space",  # your HF Space fallback
+)
 
 TASK_NAME               = "schedule-optimization"
 BENCHMARK               = "cognitive-load-manager"
@@ -72,24 +75,26 @@ def main():
         log_end(success=False, steps=0, score=0.0, rewards=[])
         return
 
-    # Build OpenAI-compatible client pointing at the validator-injected proxy.
+    # Build OpenAI-compatible client pointing at the validator-injected proxy
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     task_id = os.getenv("CLM_LEVEL", "hard")
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     # ── 1. Reset environment ──────────────────────────────────────────────────
+    # openenv-core ResetResponse: { "observation": {...}, "reward": null, "done": false }
+    # There is NO session_id — do not look for one.
+    # task_id is passed as an extra field (ResetRequest allows extra="allow").
     try:
-        data = post_json(f"{ENV_BASE_URL}/reset", {"task_id": task_id})
+        reset_data  = post_json(f"{ENV_BASE_URL}/reset", {"task_id": task_id})
+        observation = reset_data["observation"]
     except Exception as e:
         log_step(step=0, action="reset", reward=0.0, done=True, error=str(e)[:80])
         log_end(success=False, steps=0, score=0.0, rewards=[])
         return
 
-    session_id  = data["session_id"]
-    observation = data["observation"]
-    done        = False
-    step        = 0
+    done    = False
+    step    = 0
     rewards: List[float] = []
     history: List[str]   = []
     info: dict           = {}
@@ -129,7 +134,6 @@ def main():
                 max_tokens=150,
             )
             text = (completion.choices[0].message.content or "").strip()
-            # Strip accidental markdown fences
             if text.startswith("```json"):
                 text = text[7:]
             if text.startswith("```"):
@@ -137,14 +141,13 @@ def main():
             if text.endswith("```"):
                 text = text[:-3]
             text = text.strip()
-
             s, e = text.find("{"), text.rfind("}")
             if s != -1 and e != -1:
                 action = json.loads(text[s : e + 1])
         except Exception as ex:
             error_msg = str(ex)[:80]
 
-        # ── Heuristic fallback (only if LLM call failed / returned garbage) ───
+        # ── Heuristic fallback (only if LLM call failed / unparseable) ────────
         if not action:
             tasks  = observation.get("tasks", [])
             incomp = [t for t in tasks if t.get("progress", 0.0) < 1.0]
@@ -159,13 +162,12 @@ def main():
         action_str = json.dumps(action, separators=(",", ":"))
 
         # ── Step the environment ──────────────────────────────────────────────
+        # openenv-core StepRequest: { "action": {...} }  — no session_id needed.
+        # openenv-core StepResponse: { "observation": {...}, "reward": float, "done": bool }
         try:
-            step_data   = post_json(
-                f"{ENV_BASE_URL}/step",
-                {"session_id": session_id, "action": action},
-            )
+            step_data   = post_json(f"{ENV_BASE_URL}/step", {"action": action})
             observation = step_data["observation"]
-            reward      = float(step_data.get("reward", 0.0))
+            reward      = float(step_data.get("reward") or 0.0)
             done        = bool(step_data.get("done", False))
             info        = step_data.get("info", {})
         except Exception as ex:
