@@ -19,23 +19,21 @@ tasks:
     difficulty: easy
     description: "2 easy tasks with no deadlines. Agent must complete both tasks without burning out."
     max_steps: 50
-    grader: "models:grader"
+    grader: "grader.clm_graders:EasyGrader"
 
   - id: medium
     difficulty: medium
     description: "5 medium tasks with deadlines. Agent must balance speed and energy to meet deadlines."
     max_steps: 50
-    grader: "models:grader"
+    grader: "grader.clm_graders:MediumGrader"
 
   - id: hard
     difficulty: hard
-    description: "8 hard tasks with tight deadlines and hidden fatigue mechanics. Agent must manage stress and interruptions."
+    description: "8 hard tasks with tight deadlines and hidden fatigue mechanics."
     max_steps: 50
-    grader: "models:grader"
+    grader: "grader.clm_graders:HardGrader"
 
 scoring:
   reward_range: [0.01, 0.99]
   success_threshold: 0.5
   score_formula: deterministic_grader
-  notes: >
-    All task scores are strictly within (0.01, 0.99) — never exactly 0.0 or 1.0.
