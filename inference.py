@@ -19,14 +19,14 @@ from openai import OpenAI
 # ── Credentials ───────────────────────────────────────────────────────────────
 # The hackathon validator INJECTS API_BASE_URL and API_KEY into the environment.
 # We MUST use those values directly — never override them with HF_TOKEN or defaults.
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 if not API_KEY:
     print("WARNING: API_KEY not set. LLM calls will fail.", file=sys.stderr, flush=True)
     API_KEY = "missing"
 
-MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "https://huggingface.co/spaces/anonymousDevil/cognitive-load-manager")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://huggingface.co/spaces/anonymousDevil/cognitive-load-manager")
 
 print("DEBUG BASE URL:", API_BASE_URL, flush=True)
 print("DEBUG MODEL:", MODEL_NAME, flush=True)
@@ -81,7 +81,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 # ── MAIN ───────────────────────────────────────────────────────
 def main():
-    task_id = os.environ.get("CLM_LEVEL", "hard")
+    task_id = os.getenv("CLM_LEVEL", "hard")
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
