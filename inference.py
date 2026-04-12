@@ -28,9 +28,11 @@ def post_json(url: str, payload: dict) -> dict:
     except urllib.error.HTTPError as e:
         raise Exception(f"HTTP Error {e.code}: {e.read().decode('utf-8')}")
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-# API_KEY is injected by the hackathon validator — MUST be used, not bypassed.
-API_KEY = os.getenv("API_KEY", os.getenv("HF_TOKEN", ""))
+API_BASE_URL = os.getenv("API_BASE_URL")  # No default - must be injected
+API_KEY = os.getenv("API_KEY")            # No default - must be injected
+
+if not API_BASE_URL or not API_KEY:
+    raise RuntimeError("[FATAL] API_BASE_URL and API_KEY must be injected by the validator.")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN")  # kept for local dev / backward compat
