@@ -6,8 +6,12 @@ COPY backend/requirements.txt .
 RUN pip install uv && uv pip install --system --no-cache -r requirements.txt
 
 COPY backend/ /app/backend/
+COPY server/ /app/server/
+COPY grader/ /app/grader/
 COPY models.py /app/models.py
+COPY inference.py /app/inference.py
+COPY openenv.yaml /app/openenv.yaml
 
 EXPOSE 7860
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
