@@ -68,6 +68,7 @@ def grader(trajectory: dict) -> float:
 
     Wraps deterministic_grader for use with the openenv-core task evaluation
     framework. The trajectory dict should contain keys: tasks, time_step, energy.
+    Score is always strictly in the open interval (0.01, 0.99) — never 0.0 or 1.0.
     """
     raw_tasks = trajectory.get("tasks", [])
     time_step_val = trajectory.get("time_step", 50)
@@ -78,19 +79,21 @@ def grader(trajectory: dict) -> float:
 
 def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float) -> float:
     """
-    A deterministic grader returning a score STRICTLY between 0 and 1 based on:
+    A deterministic grader returning a score strictly in (0.01, 0.99) based on:
     - completion rate
     - deadline adherence
     - energy efficiency
 
-    Score is clamped to [0.01, 0.99] — never exactly 0.0 or 1.0.
+    Score is NEVER exactly 0.0 or 1.0 — always strictly between 0 and 1
+    to satisfy openenv Phase 2 validation requirements.
     """
+    # Guard: no tasks → minimal score (not zero)
     if not tasks:
         return 0.01
 
     completion_rate = sum(t.progress for t in tasks) / len(tasks)
 
-    # penalty for missed deadlines
+    # Penalty for missed deadlines
     missed_deadlines = 0
     for t in tasks:
         if t.deadline and time_step > t.deadline and t.progress < 1.0:
@@ -98,12 +101,13 @@ def deterministic_grader(tasks: list[Task], time_step: int, final_energy: float)
 
     deadline_penalty = min(0.3, missed_deadlines * 0.1)
 
-    # energy efficiency
-    energy_score = max(0.0, (final_energy - 0.1) * 0.2)
+    # Energy efficiency bonus (capped so total can't reach 1.0)
+    energy_score = max(0.0, (final_energy - 0.1) * 0.18)
 
-    score = completion_rate * 0.8 - deadline_penalty + energy_score
-    # Validator requires score strictly in (0, 1) — clamp to [0.01, 0.99]
-    return round(max(0.01, min(0.99, score)), 4)
+    raw = completion_rate * 0.78 - deadline_penalty + energy_score
+
+    # Strictly clamp to open interval (0.01, 0.99) — never 0.0 or 1.0
+    return round(max(0.01, min(0.99, raw)), 4)
 
 
 # ==========================================
@@ -204,7 +208,7 @@ class CLMEnvironment:
                 else:
                     reward += 1.0
                     
-        reward = round(max(0.01, min(0.99, float(reward))), 4)
+        reward = max(0.01, min(0.99, float(reward)))
                     
         return self._get_observation(), reward, done, self.state.model_dump()
         
