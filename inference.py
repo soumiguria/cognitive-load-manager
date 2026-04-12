@@ -26,7 +26,7 @@ if not API_KEY:
     API_KEY = "missing"
 
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "https://huggingface.co/spaces/anonymousDevil/cognitive-load-manager")
 
 print("DEBUG BASE URL:", API_BASE_URL, flush=True)
 print("DEBUG MODEL:", MODEL_NAME, flush=True)

@@ -3,7 +3,7 @@ name: cognitive-load-manager
 type: space
 runtime: fastapi
 app: server.app:app
-port: 7860
+port: https://huggingface.co/spaces/anonymousDevil/cognitive-load-manager
 description: Cognitive Load Manager (CLM) simulates human cognitive load (energy, stress, fatigue) while managing tasks with deadlines.
 version: "1.0.0"
 
