@@ -17,21 +17,21 @@ tags: [openenv, rl, scheduling, agent-eval, productivity]
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python)](#)
 [![React Dashboard](https://img.shields.io/badge/React-Live_Dashboard-blue?style=for-the-badge&logo=react)](#)
 
-CLM is a **real-world productivity simulation** where an AI agent plays the role of a human knowledge worker's task scheduler. It must manage heterogeneous work items — emails, meetings, code reviews, reports, and calls — each with different cognitive demands, deadlines, priorities, and dependencies, while keeping the worker's energy and stress within safe bounds.
+CLM is a **real-world productivity simulation** where an AI agent plays the role of a human knowledge worker's task scheduler. It must manage heterogeneous work items like emails, meetings, code reviews, reports, and calls each with different cognitive demands, deadlines, priorities, and dependencies, while keeping the worker's energy and stress within safe bounds.
 
 *This is not a toy game.* CLM models how humans actually experience workload: stress accumulates when deadlines approach, fatigue reduces efficiency, context-switching has a cognitive cost, and deep focus yields better output at the expense of higher energy.
 
----
+
 
 ## 🎯 Why This Environment Matters
 
-Modern knowledge workers face **cognitive load management** as one of their most critical daily challenges — yet no RL environment has modelled this domain in a principled, agent-evaluatable way. CLM fills this gap:
+Modern knowledge workers face **cognitive load management** as one of their most critical daily challenges, yet no RL environment has modelled this domain in a principled, agent-evaluatable way. CLM fills this gap:
 
 - **Useful for training agents** that assist with personal productivity tools, calendar management, and task triage systems.
-- **Useful for evaluating LLM planning ability** — especially multi-step planning under resource constraints.
+- **Useful for evaluating LLM planning ability** especially multi-step planning under resource constraints.
 - **Realistic dynamics**: energy, stress, fatigue, and task dependencies create emergent difficulty that pure search algorithms cannot exploit.
 
----
+
 
 ## 🕹️ Actions
 
@@ -50,7 +50,7 @@ Action format:
 {"type": "break", "task_id": null}
 ```
 
----
+
 
 ## 👁️ Observation Space
 
@@ -85,7 +85,6 @@ Action format:
 - `upcoming_deadlines` — tasks with deadline within the next 5 steps
 - `focus_mode` — whether the agent is currently in deep-work state
 
----
 
 ## 📋 Tasks & Baseline Scores
 
@@ -99,7 +98,6 @@ Action format:
 Scores produced by heuristic agent (priority + deadline triage with focus mode).
 A strong LLM agent should achieve: easy >0.85, medium >0.55, hard >0.35, expert >0.25.
 
----
 
 ## 🏆 Scoring Formula
 
@@ -119,7 +117,6 @@ score = weighted_completion × 0.60
 
 Score is always in **(0.01, 0.99)** — never exactly 0 or 1.
 
----
 
 ## 🚀 Setup
 
@@ -149,7 +146,6 @@ cd frontend && npm install && npm run dev
 # Visit http://localhost:5173
 ```
 
----
 
 ## 🏛️ Architecture
 
@@ -177,7 +173,6 @@ graph TD
     API -->|OpenEnv spec| OE[openenv validate]
 ```
 
----
 
 ## 📊 Reward Shaping Details
 
@@ -197,7 +192,6 @@ Step rewards provide **dense signal** across the full trajectory:
 | Episode: all done (on time) | +1.0 |
 | Episode: all done (late) | +0.5 |
 
----
 
 ## ⚙️ Environment Variables
 
