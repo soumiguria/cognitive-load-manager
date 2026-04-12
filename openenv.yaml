@@ -48,10 +48,10 @@ observation_space:
     - depends_on: task_id or null
     - is_interrupted: bool
   visible_state:
-    - fatigue_level: "low | medium | high"
-    - stress_warning: bool
-    - energy_level: float [0.0, 1.0]
-    - stress_level: float [0.0, 1.0]
+    # Partial observability: energy/stress are categorical labels, not raw floats.
+    - fatigue_level: "low | medium | high"     # energy bands: >0.6 | 0.3-0.6 | <0.3
+    - stress_level: "calm | elevated | critical" # stress bands: <0.45 | 0.45-0.75 | >0.75
+    - stress_warning: bool                       # true when stress > 0.65
     - focus_mode: bool
     - upcoming_deadlines: list[task_id]
     - blocked_tasks: list[task_id]

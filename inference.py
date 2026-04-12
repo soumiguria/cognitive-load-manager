@@ -100,7 +100,9 @@ def heuristic_fallback(obs: dict) -> Dict:
     blocked = set(vs.get("blocked_tasks", []))
     tasks   = [t for t in obs.get("tasks", [])
                if t.get("progress", 0.0) < 1.0 and t["id"] not in blocked]
-    if vs.get("energy_level", 1.0) < 0.35 or vs.get("stress_warning", False):
+    # FIX 6: observation is now partially observable — use categorical labels
+    fatigue = vs.get("fatigue_level", "low")
+    if fatigue == "high" or vs.get("stress_warning", False):
         return {"type": "break", "task_id": None}
     if tasks:
         # Sort: critical > high > normal > low, then nearest deadline
@@ -108,7 +110,8 @@ def heuristic_fallback(obs: dict) -> Dict:
         tasks.sort(key=lambda t: (pmap.get(t.get("priority", "normal"), 2),
                                   t.get("deadline") or 9999))
         t = tasks[0]
-        atype = "focus" if t.get("priority") == "critical" and vs.get("energy_level", 1.0) > 0.55 else "work"
+        fatigue_ok = vs.get("fatigue_level", "low") != "high"
+        atype = "focus" if t.get("priority") == "critical" and fatigue_ok else "work"
         return {"type": atype, "task_id": t["id"]}
     return {"type": "delay", "task_id": None}
 
