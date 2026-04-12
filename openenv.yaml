@@ -6,6 +6,12 @@ app: server.app:app
 port: 7860
 description: Cognitive Load Manager (CLM) simulates human cognitive load (energy, stress, fatigue) while managing tasks with deadlines.
 version: "1.0.0"
+
+endpoints:
+  health: /
+  reset:  /reset
+  step:   /step
+  state:  /state
 schema:
   observation:
     type: object

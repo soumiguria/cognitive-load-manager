@@ -37,6 +37,11 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def main():
+    if not API_BASE_URL or not API_KEY:
+        print("[ERROR] API_BASE_URL or API_KEY not set. Cannot proceed.", flush=True)
+        log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
+
     # Initialize client using ONLY the validator-provided proxy credentials
     client = OpenAI(
         base_url=API_BASE_URL,
