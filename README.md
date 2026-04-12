@@ -9,7 +9,7 @@ pinned: false
 tags: [openenv, rl, scheduling, agent-eval, productivity]
 ---
 
-# 🧠 Cognitive Load Manager (CLM) v2.0
+# 🧠 Cognitive Load Manager (CLM) 
 
 **An OpenEnv RL Simulation for the Meta PyTorch Hackathon**
 
