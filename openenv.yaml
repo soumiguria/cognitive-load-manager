@@ -8,67 +8,30 @@ description: Cognitive Load Manager (CLM) simulates human cognitive load (energy
 version: "1.0.0"
 
 endpoints:
-  health: /
+  health: /health
   reset:  /reset
   step:   /step
   state:  /state
-
-schema:
-  observation:
-    type: object
-    properties:
-      tasks:
-        type: array
-        items:
-          type: object
-          properties:
-            id: { type: string }
-            difficulty: { type: string }
-            progress: { type: number }
-            deadline: { type: number, nullable: true }
-      visible_state:
-        type: object
-        properties:
-          fatigue_level: { type: string }
-          stress_warning: { type: boolean }
-      time_step: { type: integer }
-  action:
-    type: object
-    properties:
-      type: { type: string, enum: ["work", "break", "switch", "delay"] }
-      task_id: { type: string, nullable: true }
-  reward:
-    type: number
-
-graders:
-  deterministic_grader:
-    description: "Evaluates agent performance based on task completion, deadline adherence, and energy efficiency. Score strictly in (0.01, 0.99)."
-    fn: "models.grader"
+  grade:  /grader
 
 tasks:
   - id: easy
     difficulty: easy
     description: "2 easy tasks with no deadlines. Agent must complete both tasks without burning out."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Score strictly in (0.01, 0.99). Grades on completion rate, deadline adherence, and energy efficiency."
+    grader: "models:grader"
 
   - id: medium
     difficulty: medium
     description: "5 medium tasks with deadlines. Agent must balance speed and energy to meet deadlines."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Score strictly in (0.01, 0.99). Grades on completion rate, deadline adherence, and energy efficiency."
+    grader: "models:grader"
 
   - id: hard
     difficulty: hard
     description: "8 hard tasks with tight deadlines and hidden fatigue mechanics. Agent must manage stress and interruptions."
     max_steps: 50
-    grader:
-      fn: "models.grader"
-      description: "Score strictly in (0.01, 0.99). Grades on completion rate, deadline adherence, and energy efficiency."
+    grader: "models:grader"
 
 scoring:
   reward_range: [0.01, 0.99]
@@ -76,9 +39,3 @@ scoring:
   score_formula: deterministic_grader
   notes: >
     All task scores are strictly within (0.01, 0.99) — never exactly 0.0 or 1.0.
-    Grader evaluates completion rate, deadline adherence, and energy efficiency.
-
-constraints:
-  max_runtime_seconds: 600
-  max_memory_gb: 4
-  max_vcpu: 2
