@@ -17,9 +17,9 @@ from openai import OpenAI
 # We try HF_TOKEN first (same order as the accepted reference repo).
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN")                        # auto-injected by HF Space
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")  # try HF_TOKEN first
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+HF_TOKEN     = os.getenv("HF_TOKEN")
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://anonymousdevil-cognitive-load-manager.hf.space")
 
 TASK_NAME               = "schedule-optimization"
 BENCHMARK               = "cognitive-load-manager"
