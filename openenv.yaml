@@ -5,8 +5,14 @@ runtime: fastapi
 app: server.app:app
 port: 7860
 
-description: Cognitive Load Manager (CLM) simulates human cognitive load (energy, stress, fatigue) while managing tasks with deadlines.
-version: "1.0.0"
+description: >
+  Cognitive Load Manager (CLM) — a real-world productivity simulation where an AI agent
+  acts as a human task scheduler, managing energy, stress, and fatigue while completing
+  heterogeneous work items (emails, meetings, code reviews, reports, calls) under deadlines.
+  Features task dependencies, mid-episode interruptions, focus mode, and priority weighting.
+version: "2.0.0"
+author: "CLM Team"
+tags: [openenv, scheduling, productivity, rl, agent-eval]
 
 endpoints:
   health: /health
@@ -15,29 +21,101 @@ endpoints:
   state:  /state
   grade:  /grader
 
+action_space:
+  type: discrete
+  actions:
+    - name: work
+      description: "Work on task_id at normal pace (energy cost varies by task type)"
+      requires: task_id
+    - name: focus
+      description: "Deep-work mode: 2× progress, 2× energy cost; exits on break"
+      requires: task_id
+    - name: break
+      description: "Rest: +0.22 energy, -0.18 stress"
+    - name: switch
+      description: "Change active task (small context-switch cost)"
+      requires: task_id
+    - name: delay
+      description: "Wait one step; slight stress reduction"
+
+observation_space:
+  tasks:
+    - id: string
+    - task_type: "email | meeting | code_review | report | call"
+    - priority: "critical | high | normal | low"
+    - progress: float [0.0, 1.0]
+    - deadline: int (step number) or null
+    - depends_on: task_id or null
+    - is_interrupted: bool
+  visible_state:
+    - fatigue_level: "low | medium | high"
+    - stress_warning: bool
+    - energy_level: float [0.0, 1.0]
+    - stress_level: float [0.0, 1.0]
+    - focus_mode: bool
+    - upcoming_deadlines: list[task_id]
+    - blocked_tasks: list[task_id]
+  time_step: int
+
 tasks:
   - id: easy
     difficulty: easy
-    description: "2 easy tasks with no deadlines. Agent must complete both tasks without burning out."
+    description: >
+      2 tasks (email + report), normal priority, no deadlines.
+      Agent must complete both without burning out.
+      Tests basic work/break balance.
     max_steps: 50
     grader: "grader.clm_graders:EasyGrader"
+    baseline_score: 0.856
 
   - id: medium
     difficulty: medium
-    description: "5 medium tasks with deadlines. Agent must balance speed and energy to meet deadlines."
+    description: >
+      5 heterogeneous tasks (email/meeting/code_review/report/call) with mixed
+      priorities (critical→low) and real deadlines. Agent must triage intelligently.
+      Tests priority-aware scheduling and deadline management.
     max_steps: 50
     grader: "grader.clm_graders:MediumGrader"
+    baseline_score: 0.523
 
   - id: hard
     difficulty: hard
-    description: "8 hard tasks with tight deadlines and hidden fatigue mechanics."
+    description: >
+      8 tasks with explicit dependencies (task B cannot start until task A completes),
+      tight deadlines, and 2 mid-episode urgent email interruptions.
+      Tests dependency-aware scheduling under time pressure.
     max_steps: 50
     grader: "grader.clm_graders:HardGrader"
+    baseline_score: 0.301
+
+  - id: expert
+    difficulty: expert
+    description: >
+      10 tasks in a deep dependency chain, 3 mid-episode interruptions,
+      mixed critical/high/normal priorities, and very tight deadlines.
+      Genuinely challenges frontier LLM agents.
+    max_steps: 60
+    grader: "grader.clm_graders:ExpertGrader"
+    baseline_score: 0.221
 
 scoring:
-  reward_range: [0.01, 0.99]
-  success_threshold: 0.5
+  reward_range: [-1.0, 1.0]         # step rewards (negative preserved for burnout)
+  grader_range: [0.01, 0.99]        # final episode scores
+  success_threshold: 0.50
   score_formula: deterministic_grader
+  components:
+    - weighted_completion:  0.60
+    - deadline_adherence:   0.22
+    - energy_efficiency:    0.10
+    - dependency_bonus:     0.05
+    - interruption_bonus:   0.03
+
+reward_shaping:
+  milestone_rewards: [0.25, 0.50, 0.75, 1.00]
+  burnout_penalty: -1.0
+  context_switch_penalty: -0.07
+  blocked_task_penalty: -0.15
+  stress_penalty_threshold: 0.80
 
 constraints:
   max_runtime_seconds: 1800
@@ -50,4 +128,3 @@ inference:
     - API_BASE_URL
     - MODEL_NAME
     - HF_TOKEN
-    - API_KEY
