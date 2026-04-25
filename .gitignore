@@ -1,3 +1,62 @@
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Secrets & credentials
 .env
-node_modules
-__pycache__
+*.env
+.env.*
+secrets.json
+credentials.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Training outputs (large model files)
+grpo_clm_model/
+grpo_clm_model_final/
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+checkpoint-*/
+
+# Logs & temp files
+reward_curve.json
+*.log
+*.tmp
+*.swp
+
+# Test artifacts
+test_e2e.py
+
+# HuggingFace cache
+.cache/
+~/.cache/huggingface/
+
+# Node (frontend)
+node_modules/
+frontend/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace

@@ -1,4 +1,19 @@
-import os, sys
+"""
+backend/main.py — Standalone FastAPI server for the Cognitive Load Manager.
+
+Endpoints (matching openenv.yaml contract):
+  GET  /health
+  POST /reset      {"task_id": "easy|medium|hard|expert"}
+  POST /step       {"session_id": "...", "action": {...}}
+  GET  /state      ?session_id=...
+  GET  /grader
+  GET  /grade/easy|medium|hard|expert
+
+No openenv-core dependency — works on Python 3.9+.
+"""
+import os
+import sys
+import uuid
 from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException
@@ -8,17 +23,16 @@ from pydantic import BaseModel, Field
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models import (
-    Action as ModelAction, Observation as ModelObservation,
-    generate_tasks, deterministic_grader, CLMEnvironment,
+    Action as ModelAction,
+    generate_tasks,
+    deterministic_grader,
+    CLMEnvironment,
+    PRIORITY_WEIGHT,
 )
-from openenv.core.env_server.interfaces import Environment
-from openenv.core.env_server.types import (
-    Action as OEAction, Observation as OEObservation, State as OEState, EnvironmentMetadata,
-)
-from openenv.core.env_server.http_server import HTTPEnvServer
 
 _SCORE_MIN = 0.01
 _SCORE_MAX = 0.99
+
 
 def _safe(raw: float) -> float:
     try:
@@ -26,8 +40,62 @@ def _safe(raw: float) -> float:
     except Exception:
         return _SCORE_MIN
 
-def _grade_task(difficulty: str) -> dict:
-    """Run heuristic episode and score the final state."""
+
+# ==========================================
+# SESSION STORE
+# Each session_id maps to a live CLMEnvironment.
+# ==========================================
+_sessions: Dict[str, CLMEnvironment] = {}
+
+
+def _get_session(session_id: str) -> CLMEnvironment:
+    env = _sessions.get(session_id)
+    if env is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found. Call /reset first.")
+    return env
+
+
+def _avg_energy(env: CLMEnvironment) -> float:
+    workers = env.state.workers
+    return sum(w.energy for w in workers) / len(workers) if workers else 0.5
+
+
+# ==========================================
+# REQUEST / RESPONSE MODELS
+# ==========================================
+
+class ResetRequest(BaseModel):
+    task_id: str = Field(default="medium", description="easy | medium | hard | expert")
+    seed: Optional[int] = Field(default=None)
+
+    # Accept 'task' as an alias for 'task_id' (backwards compat with old training_loop)
+    class Config:
+        populate_by_name = True
+
+    def __init__(self, **data):
+        # Map legacy 'task' key → 'task_id'
+        if "task" in data and "task_id" not in data:
+            data["task_id"] = data.pop("task")
+        super().__init__(**data)
+
+
+class ActionPayload(BaseModel):
+    type: str = Field(description="work | focus | break | switch | delay")
+    task_id: Optional[str] = Field(default=None)
+    worker_id: Optional[str] = Field(default=None)
+
+
+class StepRequest(BaseModel):
+    session_id: Optional[str] = Field(default=None)
+    action: ActionPayload
+
+
+# ==========================================
+# GRADER HELPERS
+# ==========================================
+
+def _run_grader_episode(difficulty: str) -> dict:
+    """Run a heuristic episode and grade the final state (for /grade/* endpoints)."""
     try:
         from grader.clm_graders import EasyGrader, MediumGrader, HardGrader, ExpertGrader
         cls = {"easy": EasyGrader, "medium": MediumGrader,
@@ -36,117 +104,16 @@ def _grade_task(difficulty: str) -> dict:
         score = _safe(score)
     except Exception as ex:
         score = _SCORE_MIN
-        msg   = f"Grader error: {ex}"
-    return {"task_id": difficulty, "reward": score, "score": score,
-            "done": False, "grader_message": msg}
+        msg = f"Grader error: {ex}"
+    return {"task_id": difficulty, "reward": score, "score": score, "done": False,
+            "grader_message": msg}
 
 
-class CLMAction(OEAction):
-    type: str = Field(description="work | break | switch | delay | focus")
-    task_id: Optional[str] = Field(default=None)
-    model_config = {"extra": "allow"}
-
-class CLMObservation(OEObservation):
-    tasks:         List[Dict[str, Any]] = Field(default_factory=list)
-    visible_state: Dict[str, Any]       = Field(default_factory=dict)
-    time_step:     int                  = Field(default=0)
-    workers:       List[Dict[str, Any]] = Field(default_factory=list)
-    schema_drift:  Optional[Dict]       = Field(default=None)
-    final_score:   Optional[float]      = Field(default=None)
-    model_config = {"extra": "allow"}
-
-class CLMState(OEState):
-    workers:         List[Dict[str, Any]] = Field(default_factory=list)
-    focus_mode:      bool                 = Field(default=False)
-    tasks:           List[Dict[str, Any]] = Field(default_factory=list)
-    model_config = {"extra": "allow"}
-
-
-class CLMEnvWrapper(Environment):
-    SUPPORTS_CONCURRENT_SESSIONS = True
-    _agent_score_history: List[float] = []
-    _GLOBAL_ENV = None
-
-    def __init__(self):
-        super().__init__()
-        if CLMEnvWrapper._GLOBAL_ENV is None:
-            CLMEnvWrapper._GLOBAL_ENV = CLMEnvironment(tasks=generate_tasks("easy"), max_steps=50)
-        self._final_score: float = _SCORE_MIN
-        
-    @property
-    def _env(self):
-        return CLMEnvWrapper._GLOBAL_ENV
-        
-    @_env.setter
-    def _env(self, value):
-        CLMEnvWrapper._GLOBAL_ENV = value
-
-    def _to_oe_obs(self, obs: ModelObservation, done=False,
-                   reward=None, info=None) -> CLMObservation:
-        return CLMObservation(
-            tasks=[t.model_dump() for t in obs.tasks],
-            visible_state=obs.visible_state.model_dump(),
-            time_step=obs.time_step, done=done, reward=reward, 
-            workers=info.get("workers", []) if info else [],
-            schema_drift=info.get("schema_drift") if info else None,
-            final_score=info.get("final_score") if info else None
-        )
-
-    def reset(self, seed=None, episode_id=None, task_id: str = "easy", **kw) -> CLMObservation:
-        if task_id == "auto":
-            hist = self.__class__._agent_score_history
-            if len(hist) < 3:
-                task_id = "easy"
-            else:
-                recent_avg = sum(hist[-3:]) / 3.0
-                if recent_avg > 0.80:
-                    task_id = "expert"
-                elif recent_avg > 0.60:
-                    task_id = "hard"
-                elif recent_avg > 0.40:
-                    task_id = "medium"
-                else:
-                    task_id = "easy"
-        elif task_id not in ("easy", "medium", "hard", "expert"):
-            task_id = "easy"
-        max_s = 60 if task_id == "expert" else 50
-        self._env = CLMEnvironment(tasks=generate_tasks(task_id, seed=seed), max_steps=max_s)
-        self._final_score = _SCORE_MIN
-        return self._to_oe_obs(self._env.reset(), info=self._env.state_dict())
-
-    def step(self, action: CLMAction, timeout_s=None, **kw) -> CLMObservation:
-        ma = ModelAction(type=action.type, task_id=action.task_id, worker_id=getattr(action, "worker_id", "w1"))
-        obs, reward, done, info = self._env.step(ma)
-        if done:
-            self._final_score = _safe(info.get("final_score",
-                deterministic_grader(self._env.state.tasks,
-                                     self._env.state.time_step, self._env.state.energy)))
-            info["final_score"] = self._final_score
-            self.__class__._agent_score_history.append(self._final_score)
-        return self._to_oe_obs(obs, done=done, reward=_safe(float(reward)), info=info)
-
-    @property
-    def state(self):
-        raw = self._env.state_dict()
-        return CLMState(
-            workers=raw.get("workers", []), focus_mode=raw.get("focus_mode", False),
-            tasks=raw.get("tasks", []), step_count=raw.get("time_step", 0),
-        )
-
-    def get_metadata(self):
-        return EnvironmentMetadata(
-            name="cognitive-load-manager",
-            description="CLM v2.0 — real-world productivity scheduling with task types, dependencies, interruptions, and focus mode",
-            version="2.0.0", author="CLM Team",
-        )
-
-    def close(self): pass
-
+# ==========================================
+# APP FACTORY
+# ==========================================
 
 def build_app() -> FastAPI:
-    server = HTTPEnvServer(
-        env=CLMEnvWrapper, action_cls=CLMAction, observation_cls=CLMObservation, max_concurrent_envs=10,
-    )
     app = FastAPI(
         title="Cognitive Load Manager v2.0 — OpenEnv API",
         version="2.0.0",
@@ -156,24 +123,122 @@ def build_app() -> FastAPI:
             "with priorities, deadlines, dependencies, interruptions, and focus mode."
         ),
     )
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                       allow_methods=["*"], allow_headers=["*"])
-    server.register_routes(app)
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+        allow_methods=["*"], allow_headers=["*"],
+    )
 
-    @app.get("/grader",        tags=["Grader"]) 
-    async def get_grader():   return _grade_task("easy")
+    # ------------------------------------------------------------------
+    # Health
+    # ------------------------------------------------------------------
+    @app.get("/health", tags=["System"])
+    async def health():
+        return {"status": "healthy", "sessions": len(_sessions)}
 
-    @app.get("/grade/easy",    tags=["Grader"])
-    async def grade_easy():   return _grade_task("easy")
+    # ------------------------------------------------------------------
+    # Reset — start a new episode, return observation + session_id
+    # ------------------------------------------------------------------
+    @app.post("/reset", tags=["Environment"])
+    async def reset(req: ResetRequest):
+        task_id = req.task_id
+        if task_id not in ("easy", "medium", "hard", "expert"):
+            task_id = "easy"
 
-    @app.get("/grade/medium",  tags=["Grader"])
-    async def grade_medium(): return _grade_task("medium")
+        max_s = 60 if task_id == "expert" else 50
+        tasks = generate_tasks(task_id, seed=req.seed)
+        env = CLMEnvironment(tasks=tasks, max_steps=max_s, seed=req.seed)
+        obs = env.reset()
 
-    @app.get("/grade/hard",    tags=["Grader"])
-    async def grade_hard():   return _grade_task("hard")
+        session_id = str(uuid.uuid4())
+        _sessions[session_id] = env
 
-    @app.get("/grade/expert",  tags=["Grader"])
-    async def grade_expert(): return _grade_task("expert")
+        return {
+            "session_id": session_id,
+            "observation": {
+                "tasks": [t.model_dump() for t in obs.tasks],
+                "visible_state": obs.visible_state.model_dump(),
+                "time_step": obs.time_step,
+            },
+            "done": False,
+            "reward": 0.0,
+        }
+
+    # ------------------------------------------------------------------
+    # Step — advance the environment one timestep
+    # ------------------------------------------------------------------
+    @app.post("/step", tags=["Environment"])
+    async def step(req: StepRequest):
+        # Support both session_id-based and single-global-env modes
+        if req.session_id:
+            env = _get_session(req.session_id)
+        elif _sessions:
+            # Fallback: use the most recently created session
+            env = list(_sessions.values())[-1]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="No active session. Call /reset first.",
+            )
+
+        action = ModelAction(
+            type=req.action.type,
+            task_id=req.action.task_id,
+            worker_id=req.action.worker_id or "w1",
+        )
+        obs, reward, done, info = env.step(action)
+
+        if done:
+            avg_energy = _avg_energy(env)
+            final_score = _safe(info.get("final_score",
+                deterministic_grader(env.state.tasks, env.state.time_step, avg_energy)))
+            info["final_score"] = final_score
+            # Clean up finished session
+            if req.session_id and req.session_id in _sessions:
+                del _sessions[req.session_id]
+
+        return {
+            "session_id": req.session_id,
+            "observation": {
+                "tasks": [t.model_dump() for t in obs.tasks],
+                "visible_state": obs.visible_state.model_dump(),
+                "time_step": obs.time_step,
+            },
+            "reward": _safe(float(reward)),
+            "done": done,
+            "info": {k: v for k, v in info.items()
+                     if k in ("final_score", "schema_drift", "time_step")},
+        }
+
+    # ------------------------------------------------------------------
+    # State — inspect current env state without stepping
+    # ------------------------------------------------------------------
+    @app.get("/state", tags=["Environment"])
+    async def state(session_id: Optional[str] = None):
+        if session_id:
+            env = _get_session(session_id)
+        elif _sessions:
+            env = list(_sessions.values())[-1]
+        else:
+            raise HTTPException(status_code=400, detail="No active session.")
+        return {"state": env.state_dict(), "session_id": session_id}
+
+    # ------------------------------------------------------------------
+    # Grader endpoints
+    # ------------------------------------------------------------------
+    @app.get("/grader",       tags=["Grader"])
+    async def grader():       return _run_grader_episode("easy")
+
+    @app.get("/grade/easy",   tags=["Grader"])
+    async def grade_easy():   return _run_grader_episode("easy")
+
+    @app.get("/grade/medium", tags=["Grader"])
+    async def grade_medium(): return _run_grader_episode("medium")
+
+    @app.get("/grade/hard",   tags=["Grader"])
+    async def grade_hard():   return _run_grader_episode("hard")
+
+    @app.get("/grade/expert", tags=["Grader"])
+    async def grade_expert(): return _run_grader_episode("expert")
 
     return app
 

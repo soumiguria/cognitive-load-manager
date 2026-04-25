@@ -281,8 +281,8 @@ tbb
 tenacity
 tensorboard
 tensorboard-data-server
-tensorflow
-tensorflow-intel
+tensorflow==2.19.1
+tensorflow-intel==2.16.1
 termcolor
 terminado
 tf_keras
