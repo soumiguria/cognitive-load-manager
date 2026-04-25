@@ -177,11 +177,10 @@ export default function Dashboard() {
           setStreaming(false)
           setHistory(prev => [
             { ep: prev.length + 1, score, difficulty: d, steps: msg.step },
-            ...prev.slice(0, 9),        // keep last 10
+            ...prev.slice(0, 9),
           ])
           es.close(); esRef.current = null
-          // Auto-replay after 4 s
-          replayTimer.current = setTimeout(() => startStream(d), 4000)
+          // No auto-replay — user clicks ↺ Replay manually
         }
       }
 
@@ -193,11 +192,9 @@ export default function Dashboard() {
     }
 
     es.onerror = () => {
-      setError('Stream disconnected — backend may still be starting up. Retrying…')
+      setError('Stream disconnected. Check backend is running, then press ▶ Play again.')
       setStreaming(false)
       es.close(); esRef.current = null
-      // Retry after 5 s if still on stream mode
-      replayTimer.current = setTimeout(() => startStream(d), 5000)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [difficulty])
@@ -208,16 +205,9 @@ export default function Dashboard() {
     setStreaming(false)
   }
 
-  // Auto-start on mount (1 s delay lets the page settle)
-  useEffect(() => {
-    const t = setTimeout(() => startStream(), 1000)
-    return () => clearTimeout(t)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Cleanup on unmount
+  // Cleanup on unmount only
   useEffect(() => () => {
-    if (esRef.current)   esRef.current.close()
+    if (esRef.current)       esRef.current.close()
     if (replayTimer.current) clearTimeout(replayTimer.current)
   }, [])
 
@@ -353,7 +343,7 @@ export default function Dashboard() {
           <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a',
             background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
             padding: '6px 14px' }}>
-            ✅ Score: {finalScore.toFixed(4)} · Replaying in 4 s…
+            ✅ Episode #{episodeCount} Score: {finalScore.toFixed(4)}
           </span>
         )}
       </div>
