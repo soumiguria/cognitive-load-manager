@@ -53,22 +53,20 @@ def get_llm_action(obs: dict, history: List[str]) -> Optional[Dict]:
     hist_str = "\n".join(history[-5:]) if history else "No previous steps."
 
     system = (
-        "You are an AI productivity assistant managing human cognitive load.\n"
+        "You are an Oracle Manager AI coordinating 3 Full-Time Employees (FTEs).\n"
         "Respond with ONLY a JSON object — no markdown, no explanation.\n\n"
-        'FORMAT: {"type": "<action>", "task_id": "<id or null>"}\n\n'
+        'FORMAT: {"type": "<action>", "task_id": "<id or null>", "worker_id": "<w1/w2/w3>"}\n\n'
         "ACTIONS:\n"
-        '  "work"  — normal work on task_id (required)\n'
-        '  "focus" — deep-work: 2x progress, 2x energy cost on task_id (required)\n'
-        '  "break" — rest to recover energy (task_id: null)\n'
-        '  "switch"— change to a different task_id (required)\n'
-        '  "delay" — wait one step (task_id: null)\n\n'
+        '  "work"  — normal work on task_id by worker_id\n'
+        '  "focus" — deep-work: 2x progress, 2x energy cost\n'
+        '  "break" — rest to recover energy for worker_id\n'
+        '  "switch"— change to a different task_id\n'
+        '  "delay" — push task to tomorrow (incurs penalty)\n\n'
         "STRATEGY:\n"
-        "1. NEVER work on a task listed in blocked_tasks (unmet dependency).\n"
-        "2. If energy < 0.35 OR stress_warning → take a break.\n"
-        "3. Use 'focus' on critical tasks with upcoming_deadlines.\n"
-        "4. Otherwise work on the highest-priority (critical > high > normal > low) "
-        "   incomplete task with the nearest deadline.\n"
-        "5. If an interrupted task appears, treat it as critical.\n"
+        "1. Match task types to worker expertise (analytical vs social).\n"
+        "2. If a worker's energy < 0.35 OR stress_warning -> assign them a 'break'.\n"
+        "3. Avoid assigning identical task types consecutively to the same worker to prevent context fatigue.\n"
+        "4. Prioritize critical tasks for your most rested workers.\n"
     )
 
     user = (
@@ -95,25 +93,39 @@ def get_llm_action(obs: dict, history: List[str]) -> Optional[Dict]:
 
 
 def heuristic_fallback(obs: dict) -> Dict:
-    """Fallback used ONLY when LLM response is unparseable."""
+    """Oracle Manager fallback heuristic routing to 3 FTEs."""
     vs      = obs.get("visible_state", {})
     blocked = set(vs.get("blocked_tasks", []))
-    tasks   = [t for t in obs.get("tasks", [])
-               if t.get("progress", 0.0) < 1.0 and t["id"] not in blocked]
-    # FIX 6: observation is now partially observable — use categorical labels
-    fatigue = vs.get("fatigue_level", "low")
-    if fatigue == "high" or vs.get("stress_warning", False):
-        return {"type": "break", "task_id": None}
+    tasks   = [t for t in obs.get("tasks", []) if t.get("progress", 0.0) < 1.0 and t["id"] not in blocked]
+    
+    workers = vs.get("workers", [])
+    if not workers:
+        return {"type": "delay", "task_id": None, "worker_id": "w1"}
+
+    # Find the most rested worker
+    workers.sort(key=lambda w: (1 if w.get("fatigue_level") == "high" else 0, w.get("stress_warning", False)))
+    best_worker = workers[0]
+    wid = best_worker["id"]
+
+    if best_worker.get("fatigue_level") == "high" or best_worker.get("stress_warning"):
+        return {"type": "break", "task_id": None, "worker_id": wid}
+
     if tasks:
-        # Sort: critical > high > normal > low, then nearest deadline
+        # Match task to worker expertise
+        w_exp = best_worker.get("expertise", "analytical")
+        # simplistic bucket mapping
+        def exp_match(t):
+            tt = t.get("task_type", "")
+            bucket = "social" if tt in ("email", "meeting", "call") else "analytical"
+            return 0 if bucket == w_exp else 1
+
         pmap = {"critical": 0, "high": 1, "normal": 2, "low": 3}
-        tasks.sort(key=lambda t: (pmap.get(t.get("priority", "normal"), 2),
-                                  t.get("deadline") or 9999))
+        tasks.sort(key=lambda t: (pmap.get(t.get("priority", "normal"), 2), exp_match(t), t.get("deadline") or 9999))
         t = tasks[0]
-        fatigue_ok = vs.get("fatigue_level", "low") != "high"
-        atype = "focus" if t.get("priority") == "critical" and fatigue_ok else "work"
-        return {"type": atype, "task_id": t["id"]}
-    return {"type": "delay", "task_id": None}
+        atype = "focus" if t.get("priority") == "critical" else "work"
+        return {"type": atype, "task_id": t["id"], "worker_id": wid}
+        
+    return {"type": "delay", "task_id": None, "worker_id": wid}
 
 
 # ── Single task runner ────────────────────────────────────────────────────────
@@ -152,7 +164,11 @@ def run_task(level: str) -> float:
         action_str = json.dumps(action_dict, separators=(",", ":"))
 
         try:
-            action = Action(type=action_dict["type"], task_id=action_dict.get("task_id"))
+            action = Action(
+                type=action_dict["type"], 
+                task_id=action_dict.get("task_id"),
+                worker_id=action_dict.get("worker_id", "w1")
+            )
             obs, reward, done, info = env.step(action)
             reward = float(reward)
         except Exception as ex:

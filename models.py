@@ -11,6 +11,7 @@ Priority  = Literal["critical", "high", "normal", "low"]
 PRIORITY_WEIGHT    = {"critical": 1.5, "high": 1.2, "normal": 1.0, "low": 0.7}
 TASK_ENERGY_COST   = {"email": 0.08, "meeting": 0.18, "code_review": 0.20, "report": 0.14, "call": 0.11}
 TASK_PROGRESS_RATE = {"email": 0.35, "meeting": 0.30, "code_review": 0.20, "report": 0.22, "call": 0.28}
+COGNITIVE_BUCKETS  = {"email": "social", "meeting": "social", "code_review": "analytical", "report": "analytical", "call": "social"}
 
 ALL_TASK_TYPES: list[TaskType] = ["email", "meeting", "code_review", "report", "call"]
 ALL_PRIORITIES: list[Priority] = ["critical", "high", "normal", "low"]
@@ -28,19 +29,29 @@ class Task(BaseModel):
     depends_on: Optional[str] = None
     is_interrupted: bool = False
 
+class WorkerState(BaseModel):
+    id: str
+    energy: float = 1.0
+    stress: float = 0.0
+    current_task_id: Optional[str] = None
+    expertise: str = "analytical"
+
+class VisibleWorker(BaseModel):
+    id: str
+    fatigue_level: str
+    stress_level: str
+    stress_warning: bool
+    expertise: str
+    current_task_id: Optional[str] = None
+
 class VisibleState(BaseModel):
     """
-    FIX 6 — Partial observability: agent sees only categorical labels,
-    not raw float values for energy/stress. This rewards agents that
-    reason from context rather than reading exact numbers.
+    Partial observability for the Oracle Manager.
     """
-    fatigue_level:      str        # "low" | "medium" | "high"
-    stress_level:       str        # "calm" | "elevated" | "critical"
-    stress_warning:     bool
+    workers:            List[VisibleWorker] = []
     focus_mode:         bool  = False
     upcoming_deadlines: List[str] = []
     blocked_tasks:      List[str] = []
-    # energy_level and stress float removed — use fatigue_level / stress_level instead
 
 class Observation(BaseModel):
     tasks:        List[Task]
@@ -50,20 +61,18 @@ class Observation(BaseModel):
 class Action(BaseModel):
     type: Literal["work", "break", "switch", "delay", "focus"]
     task_id: Optional[str] = None
+    worker_id: Optional[str] = None
 
 class EnvState(BaseModel):
-    energy:                  float = 1.0
-    stress:                  float = 0.0
-    fatigue:                 float = 0.0
+    workers:                 List[WorkerState] = []
     time_step:               int   = 0
-    current_task_id:         Optional[str] = None
     tasks:                   List[Task] = []
     focus_mode:              bool  = False
     interruption_count:      int   = 0
     milestone_rewards:       Dict[str, float] = {}
-    # FIX 3 — stochastic interrupt tracking
     next_interrupt_eligible: int  = 999
     interrupt_budget:        int  = 0
+    server_outage_active:    bool  = False
 
 
 # ==========================================
@@ -228,21 +237,15 @@ def _inject_interruption(state: EnvState, step: int) -> None:
 # GRADER
 # ==========================================
 def grader(trajectory: dict) -> float:
-    """
-    OpenEnv single-argument grader.
-
-    FIX 1: If trajectory is empty or missing tasks, return 0.01 immediately.
-    The grader MUST score the actual agent trajectory — it must never silently
-    fall back to re-running a heuristic episode. Doing so would let the
-    environment grade itself rather than the agent under evaluation.
-    """
     if not trajectory or not trajectory.get("tasks"):
-        # Empty trajectory = agent produced no useful state → minimum score
         return 0.01
 
     raw_tasks = trajectory["tasks"]
     ts  = trajectory.get("time_step", 50)
-    eng = trajectory.get("energy", 0.5)
+    # Average energy across workers for grading purposes
+    workers = trajectory.get("workers", [])
+    eng = sum(w.get("energy", 0.5) for w in workers) / max(1, len(workers)) if workers else 0.5
+    
     task_objs = [Task(**t) if isinstance(t, dict) else t for t in raw_tasks]
     return deterministic_grader(task_objs, ts, eng)
 
@@ -309,6 +312,26 @@ _INTERRUPT_CONFIG = {
     "expert": (0.22,           6,             7,              3),
 }
 
+DRIFT_EVENTS = [
+    {
+        "name": "server_outage",
+        "trigger_step": 10,
+        "effect": "code_review energy cost doubles",
+        "announcement": "URGENT: Production server down, all code reviews now critical"
+    },
+    {
+        "name": "urgent_interrupt", 
+        "trigger_step": 20,
+        "effect": "Investor call added mid-episode",
+        "announcement": "Urgent interrupt — investor call added mid-episode"
+    },
+    {
+        "name": "deadline_crunch",
+        "trigger_step": 35, 
+        "effect": "All deadlines reduced by 5 steps",
+        "announcement": "Client moved deadline up. All deliverables due earlier."
+    }
+]
 
 class CLMEnvironment:
     def __init__(self, tasks: list[Task], max_steps: int = 50,
@@ -321,15 +344,24 @@ class CLMEnvironment:
         self._interrupt_prob, eligible_from, self._cooldown, budget = cfg
         self.state = EnvState(
             tasks=[t.model_copy() for t in tasks],
+            workers=self._init_workers(),
             next_interrupt_eligible=eligible_from,
             interrupt_budget=budget,
         )
+
+    def _init_workers(self) -> List[WorkerState]:
+        return [
+            WorkerState(id="w1", expertise="analytical"),
+            WorkerState(id="w2", expertise="social"),
+            WorkerState(id="w3", expertise="analytical")
+        ]
 
     def reset(self) -> Observation:
         cfg = _INTERRUPT_CONFIG.get(self.difficulty, (0.0, 999, 999, 0))
         _, eligible_from, _, budget = cfg
         self.state = EnvState(
             tasks=[t.model_copy() for t in self.initial_tasks],
+            workers=self._init_workers(),
             next_interrupt_eligible=eligible_from,
             interrupt_budget=budget,
         )
@@ -339,6 +371,28 @@ class CLMEnvironment:
         done_ids = {t.id for t in self.state.tasks if t.progress >= 1.0}
         return {t.id for t in self.state.tasks if t.depends_on and t.depends_on not in done_ids}
 
+    def apply_schema_drift(self, step: int) -> Optional[dict]:
+        for event in DRIFT_EVENTS:
+            if step == event["trigger_step"]:
+                if event["name"] == "deadline_crunch":
+                    for t in self.state.tasks:
+                        if t.deadline:
+                            t.deadline = max(step + 1, t.deadline - 5)
+                elif event["name"] == "urgent_interrupt":
+                    self.state.tasks.append(Task(
+                        id=f"drift_{step}", difficulty=self.difficulty,
+                        task_type="call", priority="critical",
+                        deadline=step + 10, is_interrupted=True,
+                    ))
+                elif event["name"] == "server_outage":
+                    self.state.server_outage_active = True
+                return {
+                     "title": event["name"],
+                     "message": event["announcement"],
+                     "step": step
+                }
+        return None
+
     def _upcoming_ids(self, window: int = 5) -> list[str]:
         return [
             t.id for t in self.state.tasks
@@ -346,17 +400,19 @@ class CLMEnvironment:
         ]
 
     def _get_observation(self) -> Observation:
-        e = self.state.energy
-        s = self.state.stress
-
-        # FIX 6: Categorical labels only — no raw floats exposed to agent
-        fatigue_label = "high" if e < 0.30 else ("medium" if e < 0.60 else "low")
-        stress_label  = "critical" if s > 0.75 else ("elevated" if s > 0.45 else "calm")
+        vis_workers = []
+        for w in self.state.workers:
+            e = w.energy
+            s = w.stress
+            fatigue_label = "high" if e < 0.30 else ("medium" if e < 0.60 else "low")
+            stress_label  = "critical" if s > 0.75 else ("elevated" if s > 0.45 else "calm")
+            vis_workers.append(VisibleWorker(
+                id=w.id, fatigue_level=fatigue_label, stress_level=stress_label,
+                stress_warning=s > 0.65, expertise=w.expertise, current_task_id=w.current_task_id
+            ))
 
         vs = VisibleState(
-            fatigue_level=fatigue_label,
-            stress_level=stress_label,
-            stress_warning=s > 0.65,
+            workers=vis_workers,
             focus_mode=self.state.focus_mode,
             upcoming_deadlines=self._upcoming_ids(),
             blocked_tasks=list(self._blocked_ids()),
@@ -366,8 +422,10 @@ class CLMEnvironment:
     def step(self, action: Action) -> Tuple[Observation, float, bool, dict]:
         reward  = 0.0
         blocked = self._blocked_ids()
+        
+        # Oracle manager assigns action to specific worker
+        worker = next((w for w in self.state.workers if w.id == action.worker_id), self.state.workers[0])
 
-        # FIX 3: Stochastic interruption — probabilistic, not fixed-step
         if (self.state.interrupt_budget > 0
                 and self.state.time_step >= self.state.next_interrupt_eligible
                 and self._rng.random() < self._interrupt_prob):
@@ -376,7 +434,6 @@ class CLMEnvironment:
             self.state.next_interrupt_eligible = self.state.time_step + self._cooldown
             reward -= 0.05
 
-        # Action processing
         if action.type in ("work", "focus"):
             is_focus = (action.type == "focus")
 
@@ -384,21 +441,32 @@ class CLMEnvironment:
                 if action.task_id in blocked:
                     reward -= 0.15
                 else:
-                    if self.state.current_task_id and self.state.current_task_id != action.task_id:
-                        reward -= 0.07
-                    self.state.current_task_id = action.task_id
-                    self.state.focus_mode      = is_focus
+                    if worker.current_task_id and worker.current_task_id != action.task_id:
+                        # Context switching penalty logic
+                        old_t = next((t for t in self.state.tasks if t.id == worker.current_task_id), None)
+                        new_t = next((t for t in self.state.tasks if t.id == action.task_id), None)
+                        if old_t and new_t:
+                            # If similar task type, HIGH penalty. If dissimilar, LOW penalty.
+                            if COGNITIVE_BUCKETS.get(old_t.task_type) == COGNITIVE_BUCKETS.get(new_t.task_type):
+                                reward -= 0.15  # Penalty for monotony
+                                worker.stress = min(1.0, worker.stress + 0.05)
+                            else:
+                                reward -= 0.05  # Refreshing context switch
+                    worker.current_task_id = action.task_id
+                    self.state.focus_mode  = is_focus
 
-            task = next((t for t in self.state.tasks if t.id == self.state.current_task_id), None)
+            task = next((t for t in self.state.tasks if t.id == worker.current_task_id), None)
 
             if task and task.progress < 1.0 and task.id not in blocked:
                 ecost      = TASK_ENERGY_COST.get(task.task_type, 0.14) * (2.0 if is_focus else 1.0)
+                if self.state.server_outage_active and task.task_type == "code_review":
+                    ecost *= 2.0
                 base_rate  = TASK_PROGRESS_RATE.get(task.task_type, 0.22)
-                efficiency = max(0.15, self.state.energy) * (1.0 - self.state.stress * 0.45)
+                efficiency = max(0.15, worker.energy) * (1.0 - worker.stress * 0.45)
                 progress   = base_rate * (2.0 if is_focus else 1.0) * efficiency
                 pw         = PRIORITY_WEIGHT[task.priority]
 
-                self.state.energy = max(0.0, self.state.energy - ecost)
+                worker.energy = max(0.0, worker.energy - ecost)
                 old_p      = task.progress
                 task.progress = min(1.0, task.progress + progress)
 
@@ -410,42 +478,47 @@ class CLMEnvironment:
                         self.state.milestone_rewards[key] = bonus
                         reward += bonus * pw
             else:
-                self.state.energy = max(0.0, self.state.energy - 0.04)
+                worker.energy = max(0.0, worker.energy - 0.04)
 
         elif action.type == "break":
             self.state.focus_mode = False
-            self.state.energy     = min(1.0, self.state.energy + 0.22)
-            self.state.stress     = max(0.0, self.state.stress - 0.18)
+            worker.energy = min(1.0, worker.energy + 0.22)
+            worker.stress = max(0.0, worker.stress - 0.18)
             reward += 0.03
 
         elif action.type == "switch":
             self.state.focus_mode = False
             if action.task_id and action.task_id not in blocked:
-                self.state.current_task_id = action.task_id
+                worker.current_task_id = action.task_id
             reward -= 0.07
 
         elif action.type == "delay":
-            self.state.stress = max(0.0, self.state.stress - 0.04)
+            # Pushing to tomorrow: Moderate penalty (not extreme)
+            worker.stress = min(1.0, worker.stress + 0.05)
+            reward -= 0.05
 
         self.state.time_step += 1
 
-        # Stress dynamics
+        # Stress dynamics for all workers
         for t in (tt for tt in self.state.tasks if tt.progress < 1.0):
             if t.deadline:
                 ttd = t.deadline - self.state.time_step
                 pw  = PRIORITY_WEIGHT[t.priority]
                 if 0 <= ttd <= 3:
-                    self.state.stress = min(1.0, self.state.stress + 0.06 * pw)
+                    for w in self.state.workers:
+                        w.stress = min(1.0, w.stress + 0.06 * pw)
                 elif ttd < 0:
-                    self.state.stress = min(1.0, self.state.stress + 0.12 * pw)
+                    for w in self.state.workers:
+                        w.stress = min(1.0, w.stress + 0.12 * pw)
 
         # Episode termination
         all_done = all(t.progress >= 1.0 for t in self.state.tasks)
-        burnout  = self.state.energy < 0.07
+        # Burnout condition: ANY worker hits 0 energy
+        burnout  = any(w.energy < 0.07 for w in self.state.workers)
         timeout  = self.state.time_step >= self.max_steps
         done     = all_done or burnout or timeout
 
-        if self.state.stress > 0.80:
+        if any(w.stress > 0.80 for w in self.state.workers):
             reward -= 0.07
 
         if done:
@@ -457,9 +530,15 @@ class CLMEnvironment:
 
         reward = max(-1.0, min(1.0, float(reward)))
         info   = self.state.model_dump()
+        
+        drift = self.apply_schema_drift(self.state.time_step)
+        if drift:
+            info["schema_drift"] = drift
+
         if done:
+            eng = sum(w.energy for w in self.state.workers) / max(1, len(self.state.workers))
             info["final_score"] = deterministic_grader(
-                self.state.tasks, self.state.time_step, self.state.energy
+                self.state.tasks, self.state.time_step, eng
             )
         return self._get_observation(), reward, done, info
 

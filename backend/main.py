@@ -50,59 +50,86 @@ class CLMObservation(OEObservation):
     tasks:         List[Dict[str, Any]] = Field(default_factory=list)
     visible_state: Dict[str, Any]       = Field(default_factory=dict)
     time_step:     int                  = Field(default=0)
+    workers:       List[Dict[str, Any]] = Field(default_factory=list)
+    schema_drift:  Optional[Dict]       = Field(default=None)
+    final_score:   Optional[float]      = Field(default=None)
     model_config = {"extra": "allow"}
 
 class CLMState(OEState):
-    energy:          float                = Field(default=1.0)
-    stress:          float                = Field(default=0.0)
-    fatigue:         float                = Field(default=0.0)
+    workers:         List[Dict[str, Any]] = Field(default_factory=list)
     focus_mode:      bool                 = Field(default=False)
-    current_task_id: Optional[str]        = Field(default=None)
     tasks:           List[Dict[str, Any]] = Field(default_factory=list)
     model_config = {"extra": "allow"}
 
 
 class CLMEnvWrapper(Environment):
     SUPPORTS_CONCURRENT_SESSIONS = True
+    _agent_score_history: List[float] = []
+    _GLOBAL_ENV = None
 
     def __init__(self):
         super().__init__()
-        self._env = CLMEnvironment(tasks=generate_tasks("easy"), max_steps=50)
+        if CLMEnvWrapper._GLOBAL_ENV is None:
+            CLMEnvWrapper._GLOBAL_ENV = CLMEnvironment(tasks=generate_tasks("easy"), max_steps=50)
         self._final_score: float = _SCORE_MIN
+        
+    @property
+    def _env(self):
+        return CLMEnvWrapper._GLOBAL_ENV
+        
+    @_env.setter
+    def _env(self, value):
+        CLMEnvWrapper._GLOBAL_ENV = value
 
     def _to_oe_obs(self, obs: ModelObservation, done=False,
                    reward=None, info=None) -> CLMObservation:
         return CLMObservation(
             tasks=[t.model_dump() for t in obs.tasks],
             visible_state=obs.visible_state.model_dump(),
-            time_step=obs.time_step, done=done, reward=reward, metadata=info or {},
+            time_step=obs.time_step, done=done, reward=reward, 
+            workers=info.get("workers", []) if info else [],
+            schema_drift=info.get("schema_drift") if info else None,
+            final_score=info.get("final_score") if info else None
         )
 
     def reset(self, seed=None, episode_id=None, task_id: str = "easy", **kw) -> CLMObservation:
-        if task_id not in ("easy", "medium", "hard", "expert"):
+        if task_id == "auto":
+            hist = self.__class__._agent_score_history
+            if len(hist) < 3:
+                task_id = "easy"
+            else:
+                recent_avg = sum(hist[-3:]) / 3.0
+                if recent_avg > 0.80:
+                    task_id = "expert"
+                elif recent_avg > 0.60:
+                    task_id = "hard"
+                elif recent_avg > 0.40:
+                    task_id = "medium"
+                else:
+                    task_id = "easy"
+        elif task_id not in ("easy", "medium", "hard", "expert"):
             task_id = "easy"
         max_s = 60 if task_id == "expert" else 50
-        self._env = CLMEnvironment(tasks=generate_tasks(task_id), max_steps=max_s)
+        self._env = CLMEnvironment(tasks=generate_tasks(task_id, seed=seed), max_steps=max_s)
         self._final_score = _SCORE_MIN
-        return self._to_oe_obs(self._env.reset())
+        return self._to_oe_obs(self._env.reset(), info=self._env.state_dict())
 
     def step(self, action: CLMAction, timeout_s=None, **kw) -> CLMObservation:
-        ma = ModelAction(type=action.type, task_id=action.task_id)
+        ma = ModelAction(type=action.type, task_id=action.task_id, worker_id=getattr(action, "worker_id", "w1"))
         obs, reward, done, info = self._env.step(ma)
         if done:
             self._final_score = _safe(info.get("final_score",
                 deterministic_grader(self._env.state.tasks,
                                      self._env.state.time_step, self._env.state.energy)))
             info["final_score"] = self._final_score
+            self.__class__._agent_score_history.append(self._final_score)
         return self._to_oe_obs(obs, done=done, reward=_safe(float(reward)), info=info)
 
     @property
     def state(self):
         raw = self._env.state_dict()
         return CLMState(
-            energy=raw.get("energy", 1.0), stress=raw.get("stress", 0.0),
-            fatigue=raw.get("fatigue", 0.0), focus_mode=raw.get("focus_mode", False),
-            current_task_id=raw.get("current_task_id"),
+            workers=raw.get("workers", []), focus_mode=raw.get("focus_mode", False),
             tasks=raw.get("tasks", []), step_count=raw.get("time_step", 0),
         )
 
