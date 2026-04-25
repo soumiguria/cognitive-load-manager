@@ -11,6 +11,7 @@ Endpoints (matching openenv.yaml contract):
 
 No openenv-core dependency — works on Python 3.9+.
 """
+import json
 import os
 import sys
 import uuid
@@ -18,6 +19,8 @@ from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -239,6 +242,43 @@ def build_app() -> FastAPI:
 
     @app.get("/grade/expert", tags=["Grader"])
     async def grade_expert(): return _run_grader_episode("expert")
+
+    # ------------------------------------------------------------------
+    # Training log — serves reward_curve.json if it exists
+    # ------------------------------------------------------------------
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _REWARD_CURVE = os.path.join(_ROOT, "reward_curve.json")
+
+    @app.get("/training-log", tags=["Training"])
+    async def training_log():
+        if os.path.exists(_REWARD_CURVE):
+            with open(_REWARD_CURVE) as f:
+                return json.load(f)
+        return []
+
+    # ------------------------------------------------------------------
+    # React SPA — serve built frontend at / and /assets/*
+    # Only active when frontend/dist is present (i.e. inside Docker)
+    # ------------------------------------------------------------------
+    _DIST = os.path.join(_ROOT, "frontend", "dist")
+    _ASSETS = os.path.join(_DIST, "assets")
+
+    if os.path.isdir(_ASSETS):
+        app.mount("/assets", StaticFiles(directory=_ASSETS), name="assets")
+
+    if os.path.isdir(_DIST):
+        @app.get("/", include_in_schema=False)
+        async def serve_spa():
+            return FileResponse(os.path.join(_DIST, "index.html"))
+    else:
+        @app.get("/", tags=["System"])
+        async def api_root():
+            return {
+                "status": "ok",
+                "service": "Cognitive Load Manager — OpenEnv API",
+                "docs": "/docs",
+                "health": "/health",
+            }
 
     return app
 
