@@ -53,7 +53,7 @@ What makes the environment harder (and more realistic) is what we layered on top
 - **Fatigue accumulation** — workers get progressively less effective as the session goes on, not just linearly
 - **Mid-episode rule changes** — deadlines shift, new tasks drop in, priorities change. In our dashboard you can see this live: a "Schema Drift" alert fires mid-episode ("URGENT: Production server down, all code reviews now critical") and the agent has to adapt its decisions in real time — it can't just replay a fixed plan
 
-This maps to **Theme 1 (Multi-Agent Interactions)** — three worker agents with independent states, a manager that has to model their condition under partial observability, and emergent cooperation between the scheduling decisions and the workers' capacity. It also sits in **Theme 3.1 (World Modeling / Professional Tasks)** because the manager is doing real orchestration: updating beliefs about worker state, sequencing task workflows, and handling dynamic interruptions through OpenEnv's step/reset interface.
+This maps to **Theme 1 (Multi-Agent Interactions)** three worker agents with independent states, a manager that has to model their condition under partial observability, and emergent cooperation between the scheduling decisions and the workers' capacity. It also sits in **Theme 3.1 (World Modeling / Professional Tasks)** because the manager is doing real orchestration: updating beliefs about worker state, sequencing task workflows, and handling dynamic interruptions through OpenEnv's step/reset interface.
 
 
 ## How the Environment Works
@@ -65,7 +65,7 @@ The environment follows the standard OpenEnv interface:
 - **Observations** include: per-worker energy and stress readings, task queue state, time remaining, dependency graph
 - **Actions** include: assign task to a worker, focus a worker on current task, delay a task, or give a worker a break
 
-The reward function is where we spent the most time. Early versions just rewarded task completion — and the agent learned to grind workers into the ground to hit numbers. That's not what we wanted.
+The reward function is where we spent the most time. Early versions just rewarded task completion  and the agent learned to grind workers into the ground to hit numbers. That's not what we wanted.
 
 Version 1 hit a mean reward of 0.12 but the agent learned a degenerate strategy: assign every task to worker 1, ignore workers 2 and 3 entirely. Efficient on paper. Catastrophic for the worker.
 
@@ -88,7 +88,7 @@ score = completion×0.6 + deadline×0.22 + energy×0.1 + dep×0.05 + interrupt×
 | Dependency Bonus | ×0.05 | Reward for respecting task dependency order |
 | Interruption Bonus | ×0.03 | Reward for minimizing context-switching interruptions |
 
-Getting the weights right took a few rounds. The energy penalty needed to be strong enough that the agent couldn't ignore it, but not so dominant that it started refusing to assign tasks at all. We landed on a balance where the agent learns to *anticipate* stress buildup rather than react to it — which is what you actually want from a good manager.
+Getting the weights right took a few rounds. The energy penalty needed to be strong enough that the agent couldn't ignore it, but not so dominant that it started refusing to assign tasks at all. We landed on a balance where the agent learns to *anticipate* stress buildup rather than react to it, which is what you actually want from a good manager.
 
 
 
@@ -103,7 +103,7 @@ The full training notebook is here — one click, all dependencies handled, re-r
 The training loop:
 
 1. The model (manager agent) receives an observation from the environment
-2. It generates an action — structured as a decision over the available action space
+2. It generates an action structured as a decision over the available action space
 3. The action executes in the environment, and a reward is returned
 4. GRPO updates the model based on relative reward signal across a batch of rollouts
 
