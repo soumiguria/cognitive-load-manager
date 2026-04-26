@@ -2,7 +2,6 @@
 
 *A build log from the OpenEnv Hackathon | Cognitive Load Manager*
 
----
 
 The agent started inserting breaks before workers hit the burnout threshold, not after.
 
@@ -10,7 +9,6 @@ We didn't program this. It emerged.
 
 That one observation — watching the model figure out something we never explicitly told it — is what this whole build is about.
 
----
 
 There's something that always bugged me about productivity tools.
 
@@ -18,7 +16,6 @@ They're really good at telling you *what* to do. Deadlines, priorities, due date
 
 That gap is exactly what we decided to build for.
 
----
 
 ## 🎥 Watch First
 
@@ -28,7 +25,6 @@ That gap is exactly what we decided to build for.
 | **Full dashboard demo (Google Drive)** | 👉 [https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing) |
 | **Training notebook (Colab — re-runnable)** | 👉 [https://colab.research.google.com/drive/1_OoW4iH1acCni0H9POCcX2pp-6bOorzo?usp=sharing](https://colab.research.google.com/drive/1_OoW4iH1acCni0H9POCcX2pp-6bOorzo?usp=sharing) |
 
----
 
 ## The Problem We're Solving
 
@@ -38,7 +34,6 @@ We wanted to build an environment where an AI could learn to account for all of 
 
 That's the Cognitive Load Manager.
 
----
 
 ## What We Built
 
@@ -60,7 +55,6 @@ What makes the environment harder (and more realistic) is what we layered on top
 
 This maps to **Theme 1 (Multi-Agent Interactions)** — three worker agents with independent states, a manager that has to model their condition under partial observability, and emergent cooperation between the scheduling decisions and the workers' capacity. It also sits in **Theme 3.1 (World Modeling / Professional Tasks)** because the manager is doing real orchestration: updating beliefs about worker state, sequencing task workflows, and handling dynamic interruptions through OpenEnv's step/reset interface.
 
----
 
 ## How the Environment Works
 
@@ -72,6 +66,12 @@ The environment follows the standard OpenEnv interface:
 - **Actions** include: assign task to a worker, focus a worker on current task, delay a task, or give a worker a break
 
 The reward function is where we spent the most time. Early versions just rewarded task completion — and the agent learned to grind workers into the ground to hit numbers. That's not what we wanted.
+
+Version 1 hit a mean reward of 0.12 but the agent learned a degenerate strategy: assign every task to worker 1, ignore workers 2 and 3 entirely. Efficient on paper. Catastrophic for the worker.
+
+Version 2 overcorrected. We cranked up the energy penalty and the agent stopped assigning tasks almost completely — mean reward dropped to 0.08 because avoiding stress was easier than managing it. That's not a good manager either. That's just avoidance.
+
+Version 3 is what's in the repo. The energy penalty is present but not dominant. The agent can't ignore it, but it also can't hide from work. That tension is what forces it to actually learn scheduling.
 
 We rebuilt it around five scored dimensions with explicit weights:
 
@@ -90,7 +90,7 @@ score = completion×0.6 + deadline×0.22 + energy×0.1 + dep×0.05 + interrupt×
 
 Getting the weights right took a few rounds. The energy penalty needed to be strong enough that the agent couldn't ignore it, but not so dominant that it started refusing to assign tasks at all. We landed on a balance where the agent learns to *anticipate* stress buildup rather than react to it — which is what you actually want from a good manager.
 
----
+
 
 ## Training
 
@@ -109,7 +109,6 @@ The training loop:
 
 We ran for 1000 steps in the primary training run. The mean reward curve shows the agent moving from near-random behavior in the early steps to a clear upward trend by step 250, stabilizing at a higher plateau through steps 750–1000.
 
----
 
 ## Results
 
@@ -137,12 +136,14 @@ Per-action reward breakdown after training:
 
 **Episode #1** completed with a final score of **0.3393** across 11 steps on a medium-difficulty workload. The cumulative reward curve shows the agent managing energy and stress while handling a live schema drift event mid-episode. Task queue at close: email (critical, 100% complete), code_review_em2 (normal, 0%), code_review (high, 4%).
 
+Averaged across 10 episodes on hard difficulty, the trained agent scores **0.31** versus the untrained baseline of **0.18** — a consistent lift, not a one-off result.
+
 What we didn't program but observed: the agent started inserting breaks *before* workers hit the burnout threshold, not after. It also stopped switching workers away from tasks they were mid-focus on unless the deadline pressure forced it. Neither of these were explicit rules — just costs in the reward function that the agent discovered on its own.
 
 See the full episode replay, reward/step graphs, energy and stress curves, and task progress live in the dashboard demo:
 👉 [https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing)
 
----
+
 
 ## Live Environment on Hugging Face
 
@@ -151,27 +152,23 @@ The environment is deployed as a Hugging Face Space — fully runnable, no local
 For a quick walkthrough of what the environment does and what we trained, the Loom covers it in under two minutes:
 👉 [https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2](https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2)
 
----
+
 
 ## Where This Goes
 
 We built this as a hackathon project, but the problem it's solving is real and underserved.
 
-Near-term: developer-facing APIs that let teams plug human-aware scheduling into tools they already use — Slack, Linear, Notion. Not replacing them. Adding a layer that understands worker state.
+The immediate extension is worker personalization. Right now all three workers share the same fatigue model. Real people don't. Different energy curves, different stress tolerances, different recovery patterns — per-worker profiles the manager has to individually learn would make this significantly more powerful and more honest about what human-aware AI actually needs to do.
 
-Longer out: the same environment architecture adapts to other high-stakes domains. An adaptive learning system that knows when a student is cognitively overloaded, not just academically behind. A clinical scheduling tool that models doctor fatigue before it leads to errors.
+Beyond that: the same environment architecture plugs directly into real enterprise workflows. The observations map naturally to Jira tickets, Slack status, and calendar load. The reward function maps naturally to sprint velocity and team health metrics. The environment is the hard part. The integration is just an API call.
 
-The environment is the foundation. What you train on it is what changes.
-
----
 
 ## What We'd Do Differently
 
-Honest reflection: reward shaping took way longer than it should have. We went through three versions before finding something that produced the behavior we actually wanted. If we were starting over, we'd prototype the reward function with a simple heuristic agent first — validate the signal makes sense before involving the LLM at all.
+Reward shaping took way longer than it should have — three versions, two weeks of debugging degenerate strategies. If we were starting over, we'd prototype the reward function with a simple heuristic agent first. Validate the signal makes sense before involving the LLM at all. The heuristic surfaces reward exploitation fast, cheaply, and without burning GPU credits.
 
-We'd also add worker personalization. Right now all three workers share the same fatigue model. Real people have different capacities, different stress tolerances, different recovery patterns. Per-worker profiles that the manager has to individually learn would make this significantly more powerful — and more honest about what human-aware AI actually needs to do.
+The other thing: we'd add curriculum learning from the start. Right now the agent trains on medium difficulty. Starting on easy and progressively scaling to expert would give it a much cleaner learning signal in the early steps rather than flailing through hard scenarios with no prior context.
 
----
 
 ## All Links
 
@@ -182,6 +179,5 @@ We'd also add worker personalization. Right now all three workers share the same
 | 🎥 Dashboard Demo (full video) | [Google Drive](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing) |
 | 🎬 Project Walkthrough (Loom) | [Loom](https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2) |
 
----
 
 *Built for the OpenEnv Hackathon, April 2026.*
