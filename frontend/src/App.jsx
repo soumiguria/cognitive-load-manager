@@ -1,6 +1,42 @@
 import React from 'react'
 import Dashboard from './components/Dashboard'
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  componentDidCatch(error, info) {
+    console.error('Dashboard crashed:', error, info)
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5',
+          borderRadius: 12, padding: 24, margin: 24, fontFamily: 'system-ui,sans-serif' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#dc2626', marginBottom: 8 }}>
+            ⚠️ The dashboard hit a render error
+          </div>
+          <div style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 12,
+            fontFamily: 'monospace', background: '#fff', padding: 12, borderRadius: 8,
+            border: '1px solid #fecaca', whiteSpace: 'pre-wrap' }}>
+            {String(this.state.error?.message || this.state.error)}
+          </div>
+          <button onClick={() => this.setState({ error: null })}
+            style={{ background: '#dc2626', color: '#fff', border: 'none',
+              borderRadius: 8, padding: '10px 18px', fontWeight: 700, cursor: 'pointer' }}>
+            ↻ Reset Dashboard
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui,sans-serif' }}>
@@ -45,7 +81,9 @@ export default function App() {
 
       {/* ── Content ── */}
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: 24 }}>
-        <Dashboard />
+        <ErrorBoundary>
+          <Dashboard />
+        </ErrorBoundary>
       </main>
     </div>
   )

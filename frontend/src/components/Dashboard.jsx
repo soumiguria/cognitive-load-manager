@@ -272,31 +272,35 @@ export default function Dashboard() {
     esRef.current = es
 
     es.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data)
+      let msg
+      try { msg = JSON.parse(ev.data) } catch { return }
+      if (!msg || typeof msg !== 'object') return
+
+      const num = (v, fallback = 0) => (typeof v === 'number' && !isNaN(v) ? v : fallback)
 
       if (msg.type === 'reset') {
-        setTasks(msg.tasks || [])
-        setEnTrace([msg.energy])
-        setStTrace([msg.stress])
+        setTasks(Array.isArray(msg.tasks) ? msg.tasks : [])
+        setEnTrace([num(msg.energy, 1)])
+        setStTrace([num(msg.stress, 0)])
       }
 
       if (msg.type === 'step') {
-        setCurrentStep(msg.step)
-        setAction(msg.action)
-        setTasks(msg.tasks || [])
-        setRwTrace(prev => [...prev, msg.reward])
-        setEnTrace(prev => [...prev, msg.energy])
-        setStTrace(prev => [...prev, msg.stress])
+        setCurrentStep(num(msg.step, 0))
+        setAction(msg.action || null)
+        setTasks(Array.isArray(msg.tasks) ? msg.tasks : [])
+        setRwTrace(prev => [...prev, num(msg.reward)])
+        setEnTrace(prev => [...prev, num(msg.energy, 1)])
+        setStTrace(prev => [...prev, num(msg.stress, 0)])
         if (msg.schema_drift) setDrift(prev => [...prev, msg.schema_drift])
 
         if (msg.done) {
           episodeDone.current = true
-          const score = msg.final_score
+          const score = typeof msg.final_score === 'number' ? msg.final_score : null
           setFinal(score)
           setStreamDone(true)
           setStreaming(false)
           setHistory(prev => [
-            { ep: prev.length + 1, score, difficulty: d, steps: msg.step },
+            { ep: prev.length + 1, score, difficulty: d, steps: num(msg.step, 0) },
             ...prev.slice(0, 9),
           ])
           es.close(); esRef.current = null
@@ -304,7 +308,7 @@ export default function Dashboard() {
       }
 
       if (msg.type === 'error') {
-        setError(msg.message)
+        setError(msg.message || 'Unknown error')
         setStreaming(false)
         es.close(); esRef.current = null
       }
@@ -466,7 +470,7 @@ export default function Dashboard() {
             background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
             padding: '6px 14px' }}>
             ✅ Episode #{episodeCount} Complete
-            {finalScore != null ? ` · Score: ${finalScore.toFixed(4)}` : ''}
+            {typeof finalScore === 'number' ? ` · Score: ${finalScore.toFixed(4)}` : ''}
           </span>
         )}
       </div>
@@ -511,7 +515,7 @@ export default function Dashboard() {
                   Final results frozen below — all charts and task data preserved
                 </div>
               </div>
-              {finalScore != null && (
+              {typeof finalScore === 'number' && (
                 <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 12,
                   padding: '10px 20px', textAlign: 'center' }}>
                   <div style={{ fontSize: 11, color: '#d1fae5', fontWeight: 700,
@@ -640,17 +644,21 @@ export default function Dashboard() {
                 <div style={{ ...card({ marginBottom: 0 }), minWidth: 220 }}>
                   <div style={section}>Episode History</div>
                   <div style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                    {history.map(h => (
-                      <div key={h.ep} style={{ display: 'flex', gap: 8,
-                        padding: '3px 0', borderBottom: '1px solid #f8fafc',
-                        color: h.score >= 0.5 ? '#16a34a' : h.score >= 0.3 ? '#f59e0b' : '#ef4444' }}>
-                        <span style={{ color: '#94a3b8', minWidth: 24 }}>#{h.ep}</span>
-                        <span style={{ textTransform: 'capitalize', minWidth: 52,
-                          color: '#475569' }}>{h.difficulty}</span>
-                        <span style={{ fontWeight: 700 }}>{h.score.toFixed(4)}</span>
-                        <span style={{ color: '#94a3b8' }}>{h.steps}s</span>
-                      </div>
-                    ))}
+                    {history.map(h => {
+                      const sc = typeof h.score === 'number' ? h.score : null
+                      const col = sc == null ? '#64748b'
+                        : sc >= 0.5 ? '#16a34a' : sc >= 0.3 ? '#f59e0b' : '#ef4444'
+                      return (
+                        <div key={h.ep} style={{ display: 'flex', gap: 8,
+                          padding: '3px 0', borderBottom: '1px solid #f8fafc', color: col }}>
+                          <span style={{ color: '#94a3b8', minWidth: 24 }}>#{h.ep}</span>
+                          <span style={{ textTransform: 'capitalize', minWidth: 52,
+                            color: '#475569' }}>{h.difficulty}</span>
+                          <span style={{ fontWeight: 700 }}>{sc != null ? sc.toFixed(4) : '—'}</span>
+                          <span style={{ color: '#94a3b8' }}>{h.steps ?? 0}s</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
