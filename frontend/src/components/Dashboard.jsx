@@ -216,6 +216,205 @@ function ScoringFormulaCard() {
   )
 }
 
+// ── Training Performance Card (data from CLM_GRPO_Training.ipynb) ──────────────
+// Mean reward sampled at training checkpoints from the GRPO training run.
+const TRAINING_CURVE = [
+  { step: 1,    reward: 0.1006 },
+  { step: 50,   reward: 0.0882 },
+  { step: 100,  reward: 0.1192 },
+  { step: 200,  reward: 0.1010 },
+  { step: 300,  reward: 0.1383 },
+  { step: 400,  reward: 0.1700 },
+  { step: 500,  reward: 0.2201 },
+  { step: 600,  reward: 0.2542 },
+  { step: 700,  reward: 0.2595 },
+  { step: 800,  reward: 0.2648 },
+  { step: 900,  reward: 0.2345 },
+  { step: 1000, reward: 0.2648 },
+]
+
+// Per-action mean reward measured before training (heuristic baseline) and
+// after 1000 steps of GRPO training.
+const ACTION_COMPARISON = [
+  { action: 'Work',  before: 0.045, after: 0.102 },
+  { action: 'Focus', before: 0.124, after: 0.249 },
+  { action: 'Break', before: 0.030, after: 0.030 },
+  { action: 'Delay', before: 0.010, after: 0.010 },
+]
+
+function TrainingLineChart({ data, height = 160 }) {
+  const W = 720
+  const padL = 36, padR = 16, padT = 18, padB = 28
+  const innerW = W - padL - padR
+  const innerH = height - padT - padB
+  const xs = data.map(d => d.step)
+  const ys = data.map(d => d.reward)
+  const xLo = Math.min(...xs), xHi = Math.max(...xs)
+  const yLo = Math.min(0, ...ys), yHi = Math.max(...ys, 0.3)
+  const px = v => padL + ((v - xLo) / (xHi - xLo || 1)) * innerW
+  const py = v => padT + innerH - ((v - yLo) / (yHi - yLo || 1)) * innerH
+  const pts = data.map(d => `${px(d.step)},${py(d.reward)}`).join(' ')
+
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height}
+      preserveAspectRatio="none" style={{ display: 'block' }}>
+      {/* Y axis grid */}
+      {[0, 0.1, 0.2, 0.3].map(g => (
+        <g key={g}>
+          <line x1={padL} y1={py(g)} x2={W - padR} y2={py(g)}
+            stroke="#e2e8f0" strokeWidth="1" />
+          <text x={padL - 6} y={py(g) + 3} fontSize="10" fill="#94a3b8" textAnchor="end">
+            {g.toFixed(2)}
+          </text>
+        </g>
+      ))}
+      {/* X axis labels */}
+      {[0, 250, 500, 750, 1000].map(s => (
+        <text key={s} x={px(s)} y={height - 8} fontSize="10" fill="#94a3b8"
+          textAnchor="middle">step {s}</text>
+      ))}
+      {/* Area + line */}
+      <polyline
+        points={[`${px(xLo)},${py(yLo)}`, ...data.map(d => `${px(d.step)},${py(d.reward)}`),
+                 `${px(xHi)},${py(yLo)}`].join(' ')}
+        fill="#6366f122" stroke="none"
+      />
+      <polyline points={pts} fill="none" stroke="#6366f1" strokeWidth="2.5"
+        strokeLinejoin="round" strokeLinecap="round" />
+      {data.map(d => (
+        <circle key={d.step} cx={px(d.step)} cy={py(d.reward)} r="3" fill="#6366f1" />
+      ))}
+    </svg>
+  )
+}
+
+function ActionComparisonChart({ data, height = 200 }) {
+  const W = 520
+  const padL = 60, padR = 16, padT = 18, padB = 36
+  const innerW = W - padL - padR
+  const innerH = height - padT - padB
+  const yMax = Math.max(...data.flatMap(d => [d.before, d.after]), 0.3) * 1.1
+  const groupW = innerW / data.length
+  const barW = (groupW - 18) / 2
+
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height}
+      preserveAspectRatio="none" style={{ display: 'block' }}>
+      {/* Y grid */}
+      {[0, 0.1, 0.2, 0.3].map(g => {
+        const y = padT + innerH - (g / yMax) * innerH
+        return (
+          <g key={g}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y}
+              stroke="#e2e8f0" strokeWidth="1" />
+            <text x={padL - 6} y={y + 3} fontSize="10" fill="#94a3b8" textAnchor="end">
+              {g.toFixed(2)}
+            </text>
+          </g>
+        )
+      })}
+      {data.map((d, i) => {
+        const gx = padL + i * groupW + 9
+        const hBefore = (d.before / yMax) * innerH
+        const hAfter  = (d.after  / yMax) * innerH
+        return (
+          <g key={d.action}>
+            <rect x={gx} y={padT + innerH - hBefore} width={barW} height={hBefore}
+              fill="#94a3b8" rx="3" />
+            <rect x={gx + barW + 4} y={padT + innerH - hAfter} width={barW} height={hAfter}
+              fill="#6366f1" rx="3" />
+            <text x={gx + barW + 2} y={padT + innerH - hBefore - 4}
+              fontSize="9" fill="#64748b" textAnchor="middle">{d.before.toFixed(3)}</text>
+            <text x={gx + barW + barW + 6} y={padT + innerH - hAfter - 4}
+              fontSize="9" fontWeight="700" fill="#4338ca" textAnchor="middle">
+              {d.after.toFixed(3)}
+            </text>
+            <text x={gx + barW + 2} y={height - 14} fontSize="11" fontWeight="600"
+              fill="#334155" textAnchor="middle">{d.action}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+function TrainingPerformanceCard() {
+  const first = TRAINING_CURVE[0].reward
+  const last  = TRAINING_CURVE[TRAINING_CURVE.length - 1].reward
+  const lift  = (((last - first) / (Math.abs(first) || 1)) * 100).toFixed(0)
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0',
+      borderRadius: 14, padding: '20px 20px 16px', marginBottom: 16 }}>
+      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
+            Training Performance — Before vs After GRPO
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>
+            Measured during 1000-step GRPO fine-tuning of the policy on the CLM environment
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ background: '#f1f5f9', borderRadius: 10, padding: '8px 14px',
+            textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '.06em' }}>Before</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#475569' }}>
+              {first.toFixed(3)}
+            </div>
+          </div>
+          <div style={{ background: '#eef2ff', borderRadius: 10, padding: '8px 14px',
+            textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: 9, color: '#6366f1', fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '.06em' }}>After</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#4338ca' }}>
+              {last.toFixed(3)}
+            </div>
+          </div>
+          <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '8px 14px',
+            textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: 9, color: '#16a34a', fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '.06em' }}>Lift</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a' }}>
+              +{lift}%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14 }}>
+        <div style={{ background: '#f8fafc', borderRadius: 10, padding: 12,
+          border: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8',
+            textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 8 }}>
+            Mean Reward Across Training Steps
+          </div>
+          <TrainingLineChart data={TRAINING_CURVE} height={170} />
+        </div>
+
+        <div style={{ background: '#f8fafc', borderRadius: 10, padding: 12,
+          border: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8',
+            textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 8,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Per-Action Reward</span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>
+              <span style={{ display: 'inline-block', width: 9, height: 9, background: '#94a3b8',
+                borderRadius: 2, verticalAlign: 'middle', marginRight: 4 }} />Before
+              &ensp;
+              <span style={{ display: 'inline-block', width: 9, height: 9, background: '#6366f1',
+                borderRadius: 2, verticalAlign: 'middle', marginRight: 4 }} />After
+            </span>
+          </div>
+          <ActionComparisonChart data={ACTION_COMPARISON} height={170} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
   // ── mode: 'stream' (auto-play via SSE) | 'manual' (interactive) ────────────
@@ -813,8 +1012,13 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* ── Reward scoring formula — always visible ── */}
+      {/* ── Training performance — before vs after GRPO ── */}
       <div style={{ marginTop: 20 }}>
+        <TrainingPerformanceCard />
+      </div>
+
+      {/* ── Reward scoring formula — always visible ── */}
+      <div>
         <ScoringFormulaCard />
       </div>
 
