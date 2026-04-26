@@ -221,6 +221,8 @@ export default function Dashboard() {
   // ── mode: 'stream' (auto-play via SSE) | 'manual' (interactive) ────────────
   const [mode, setMode]       = useState('stream')
   const [difficulty, setDiff] = useState('medium')
+  const diffRef = useRef('medium')
+  useEffect(() => { diffRef.current = difficulty }, [difficulty])
 
   // ── stream state ──────────────────────────────────────────────────────────
   const [streaming, setStreaming]   = useState(false)
@@ -250,7 +252,7 @@ export default function Dashboard() {
 
   // ── SSE streaming ─────────────────────────────────────────────────────────
   const startStream = useCallback((diff) => {
-    const d = diff || difficulty
+    const d = diff || diffRef.current
     if (esRef.current)   { esRef.current.close(); esRef.current = null }
     if (replayTimer.current) { clearTimeout(replayTimer.current); replayTimer.current = null }
 
@@ -261,7 +263,9 @@ export default function Dashboard() {
     setTasks([]); setDrift([])
     setEpCount(prev => prev + 1)
 
-    const stepsRef = { current: 0 }
+    // Tracks whether this episode finished cleanly so onerror can ignore
+    // the connection-close the browser fires after the server ends the stream.
+    const episodeDone = { current: false }
 
     const es = new EventSource(`${API}/stream/run?difficulty=${d}&delay_ms=350`)
     esRef.current = es
@@ -276,7 +280,6 @@ export default function Dashboard() {
       }
 
       if (msg.type === 'step') {
-        stepsRef.current = msg.step
         setCurrentStep(msg.step)
         setAction(msg.action)
         setTasks(msg.tasks || [])
@@ -286,6 +289,7 @@ export default function Dashboard() {
         if (msg.schema_drift) setDrift(prev => [...prev, msg.schema_drift])
 
         if (msg.done) {
+          episodeDone.current = true
           const score = msg.final_score
           setFinal(score)
           setStreamDone(true)
@@ -295,7 +299,6 @@ export default function Dashboard() {
             ...prev.slice(0, 9),
           ])
           es.close(); esRef.current = null
-          // No auto-replay — user clicks ↺ Replay manually
         }
       }
 
@@ -307,12 +310,14 @@ export default function Dashboard() {
     }
 
     es.onerror = () => {
+      // When the server closes the stream after a clean episode end, the browser
+      // fires onerror. Ignore it — only show an error for genuine disconnects.
+      if (episodeDone.current) return
       setError('Stream disconnected. Check backend is running, then press ▶ Play again.')
       setStreaming(false)
       es.close(); esRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [difficulty])
+  }, []) // stable — reads difficulty through diffRef, never needs to be recreated
 
   const stopStream = () => {
     if (esRef.current)   { esRef.current.close(); esRef.current = null }
@@ -746,6 +751,11 @@ export default function Dashboard() {
           </div>
         </>
       )}
+
+      {/* ── Reward scoring formula — always visible ── */}
+      <div style={{ marginTop: 20 }}>
+        <ScoringFormulaCard />
+      </div>
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
