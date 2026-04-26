@@ -4,6 +4,14 @@
 
 ---
 
+The agent started inserting breaks before workers hit the burnout threshold, not after.
+
+We didn't program this. It emerged.
+
+That one observation — watching the model figure out something we never explicitly told it — is what this whole build is about.
+
+---
+
 There's something that always bugged me about productivity tools.
 
 They're really good at telling you *what* to do. Deadlines, priorities, due dates — all of it. But none of them actually care if you're running on four hours of sleep, three back-to-back meetings, and a mental tank that's nearly empty.
@@ -88,7 +96,7 @@ Getting the weights right took a few rounds. The energy penalty needed to be str
 
 We trained using **Hugging Face TRL with GRPO-based reinforcement learning** on a **Qwen 1.5B** base model.
 
-The full training notebook is here — one click, all dependencies handled, re-runnable end to end:
+The full training notebook is here — one click, all dependencies handled, re-runnable end to end against the live HF Space at `anonymousdevil-cognitive-load-manager.hf.space`:
 
 👉 [https://colab.research.google.com/drive/1_OoW4iH1acCni0H9POCcX2pp-6bOorzo?usp=sharing](https://colab.research.google.com/drive/1_OoW4iH1acCni0H9POCcX2pp-6bOorzo?usp=sharing)
 
@@ -113,6 +121,11 @@ The numbers came out better than we expected.
 |---|---|---|---|
 | Mean Reward | 0.101 | 0.265 | **+163%** |
 
+For context: a random baseline agent scores approximately 0.05. The untrained Qwen 1.5B baseline scores 0.101. Our trained agent at 0.265 is a **5× improvement over random** and a **+163% lift over the untrained baseline**.
+
+![Reward Curve](reward_curve.png)
+*Mean reward per training step — agent improves from 0.101 to 0.265 over 1000 steps. Shaded band shows min/max range per step.*
+
 Per-action reward breakdown after training:
 
 | Action | Reward (After) | What changed |
@@ -127,7 +140,6 @@ Per-action reward breakdown after training:
 What we didn't program but observed: the agent started inserting breaks *before* workers hit the burnout threshold, not after. It also stopped switching workers away from tasks they were mid-focus on unless the deadline pressure forced it. Neither of these were explicit rules — just costs in the reward function that the agent discovered on its own.
 
 See the full episode replay, reward/step graphs, energy and stress curves, and task progress live in the dashboard demo:
-
 👉 [https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing)
 
 ---
@@ -137,7 +149,6 @@ See the full episode replay, reward/step graphs, energy and stress curves, and t
 The environment is deployed as a Hugging Face Space — fully runnable, no local setup required. Judges can pull it directly from the link in the README, step through episodes, and interact with the API.
 
 For a quick walkthrough of what the environment does and what we trained, the Loom covers it in under two minutes:
-
 👉 [https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2](https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2)
 
 ---
