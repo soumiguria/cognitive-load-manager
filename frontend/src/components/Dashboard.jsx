@@ -747,11 +747,6 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* ── Reward scoring formula — always visible ── */}
-      <div style={{ marginTop: 20 }}>
-        <ScoringFormulaCard />
-      </div>
-
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
       `}</style>
