@@ -17,7 +17,6 @@ tags: [openenv, rl, scheduling, agent-eval, productivity, multi-agent, grpo, rei
 [![Hackathon](https://img.shields.io/badge/OpenEnv_Hackathon-April_2026-yellow?style=for-the-badge)](#)
 [![Result](https://img.shields.io/badge/Reward_Lift-+163%25-orange?style=for-the-badge)](#)
 
----
 
 ## 🎥 See It In 2 Minutes
 
@@ -26,7 +25,6 @@ tags: [openenv, rl, scheduling, agent-eval, productivity, multi-agent, grpo, rei
 | 🎬 **Project walkthrough** | 👉 [Watch on Loom](https://www.loom.com/share/7c7293efa0ba459ba2de243b0b5aacb2) |
 | 📊 **Live dashboard demo** | 👉 [Watch the demo](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing) |
 
----
 
 ## 🤔 The Problem
 
@@ -41,7 +39,6 @@ Real performance isn't a straight line. Fatigue piles up. Stress carries over. S
 
 **We built an AI that learns to notice all of that — and schedule around it.**
 
----
 
 ## ✨ What Makes It Special
 
@@ -53,7 +50,6 @@ This is the moment that made the whole project worth it:
 
 That's the difference between a scheduler that optimizes hours and a manager that actually understands people.
 
----
 
 ## 🛠️ How It Works (In Plain English)
 
@@ -67,7 +63,6 @@ The AI plays the manager role. Push too hard, workers burn out and quality crash
 
 And the day **does** change. Mid-shift, a "Production server down!" alert can fire and suddenly every code review is critical. The AI has to adapt on the fly.
 
----
 
 ## 🗺️ How The Pieces Fit Together
 
@@ -121,7 +116,6 @@ flowchart TB
 
 After 1000 loops, the AI is **5× better than random guessing**.
 
----
 
 ## 📈 The Results
 
@@ -141,7 +135,6 @@ What it learned without being told:
 
 👉 [Watch the full dashboard demo](https://drive.google.com/file/d/149dz_1rIlXv-eR1fwYaxRJ-cV0mQNevJ/view?usp=sharing)
 
----
 
 ## 🔭 Why This Matters
 
@@ -153,7 +146,6 @@ The same idea plugs into:
 - 🎓 **Education** — tutors that notice when a student is overloaded, not just behind
 - 🏥 **Healthcare** — staff schedulers that catch fatigue before it becomes errors
 
----
 
 ## 🚀 Try It
 
@@ -163,7 +155,6 @@ The same idea plugs into:
 | 🤗 **Live environment** | This Hugging Face Space |
 | 📝 **The full build story** | [`blog.md`](./blog.md) |
 
----
 
 <details>
 <summary><strong>🛠️ For Developers — Technical Details</strong></summary>
@@ -231,7 +222,6 @@ For the full technical write-up — observation space, reward shaping table, tra
 
 </details>
 
----
 
 <p align="center">
   <em>Built for the OpenEnv Hackathon, April 2026.</em><br/>
