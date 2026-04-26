@@ -253,7 +253,7 @@ export default function Dashboard() {
 
   // ── SSE streaming ─────────────────────────────────────────────────────────
   const startStream = useCallback((diff) => {
-    const d = diff || diffRef.current
+    const d = (typeof diff === 'string' && diff) ? diff : diffRef.current
     if (esRef.current)   { esRef.current.close(); esRef.current = null }
     if (replayTimer.current) { clearTimeout(replayTimer.current); replayTimer.current = null }
 
@@ -439,7 +439,7 @@ export default function Dashboard() {
                   borderRadius: 8, padding: '8px 20px', fontWeight: 700,
                   fontSize: 13, cursor: 'pointer' }}>⏹ Stop</button>
             : !streamDone && (
-                <button onClick={startStream}
+                <button onClick={() => startStream()}
                   style={{ background: '#6366f1', color: '#fff', border: 'none',
                     borderRadius: 8, padding: '8px 20px', fontWeight: 700,
                     fontSize: 13, cursor: 'pointer' }}>
@@ -648,14 +648,16 @@ export default function Dashboard() {
                       const sc = typeof h.score === 'number' ? h.score : null
                       const col = sc == null ? '#64748b'
                         : sc >= 0.5 ? '#16a34a' : sc >= 0.3 ? '#f59e0b' : '#ef4444'
+                      const diff = typeof h.difficulty === 'string' ? h.difficulty : '—'
+                      const steps = typeof h.steps === 'number' ? h.steps : 0
                       return (
                         <div key={h.ep} style={{ display: 'flex', gap: 8,
                           padding: '3px 0', borderBottom: '1px solid #f8fafc', color: col }}>
                           <span style={{ color: '#94a3b8', minWidth: 24 }}>#{h.ep}</span>
                           <span style={{ textTransform: 'capitalize', minWidth: 52,
-                            color: '#475569' }}>{h.difficulty}</span>
+                            color: '#475569' }}>{diff}</span>
                           <span style={{ fontWeight: 700 }}>{sc != null ? sc.toFixed(4) : '—'}</span>
-                          <span style={{ color: '#94a3b8' }}>{h.steps ?? 0}s</span>
+                          <span style={{ color: '#94a3b8' }}>{steps}s</span>
                         </div>
                       )
                     })}
