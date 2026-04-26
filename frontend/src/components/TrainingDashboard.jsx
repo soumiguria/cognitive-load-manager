@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 
 const API = ''
 
@@ -12,44 +12,305 @@ const COMP_LABELS = ['Weighted Completion ×0.60','Deadline Adherence ×0.22',
                      'Energy Efficiency ×0.10','Dependency Bonus ×0.05',
                      'Interruption Bonus ×0.03']
 
-// Published baseline (heuristic) and LLM target scores from README
 const BASELINE   = { easy:0.856, medium:0.523, hard:0.301, expert:0.221 }
 const LLM_TARGET = { easy:0.88,  medium:0.58,  hard:0.37,  expert:0.27  }
 
-// ── Tiny SVG charts ────────────────────────────────────────────────────────────
-function LineChart({ data, color='#6366f1', height=120 }) {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function trailingAvg(arr, w = 10) {
+  return arr.map((_, i) => {
+    const sl = arr.slice(Math.max(0, i - w + 1), i + 1)
+    return sl.reduce((s, v) => s + v, 0) / sl.length
+  })
+}
+function arrAvg(arr) {
+  return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
+}
+
+// ── GRPO Training Chart (matches the reference image) ─────────────────────────
+function GRPOTrainingChart({ curve }) {
+  const data = useMemo(() => {
+    if (!curve || curve.length < 10) return null
+    const n     = curve.length
+    const means = curve.map(d => d.mean)
+    const maxes = curve.map(d => d.max ?? d.mean)
+    const mins  = curve.map(d => d.min ?? d.mean)
+    const sm    = trailingAvg(means, 10)
+
+    const yLo = Math.min(-0.01, ...mins) - 0.005
+    const yHi = Math.max(...maxes) + 0.01
+
+    // Phase averages
+    const t1 = Math.floor(n / 3), t2 = Math.floor((2 * n) / 3)
+    const early  = arrAvg(means.slice(0, t1))
+    const middle = arrAvg(means.slice(t1, t2))
+    const late   = arrAvg(means.slice(t2))
+
+    return { n, means, maxes, mins, sm, yLo, yHi,
+             startMean: means[0], endMean: means[n - 1],
+             peakMean: Math.max(...means),
+             early, middle, late }
+  }, [curve])
+
+  if (!data) return null
+
+  const { n, means, maxes, mins, sm,
+          yLo, yHi, startMean, endMean, peakMean,
+          early, middle, late } = data
+
+  // SVG layout
+  const W = 880, PAD = { t: 24, r: 20, b: 38, l: 52 }
+  const cW = W - PAD.l - PAD.r
+  const H1 = 220
+  const cH = H1 - PAD.t - PAD.b
+
+  const x  = i => PAD.l + (i / Math.max(n - 1, 1)) * cW
+  const y  = v => PAD.t + cH - ((v - yLo) / (yHi - yLo)) * cH
+  const fp = v => v.toFixed(1)
+
+  // Polyline points (generated once via useMemo already)
+  const bandPts = curve.map((d, i) => `${fp(x(i))},${fp(y(d.min))}`).join(' ')
+                + ' '
+                + [...curve].reverse().map((d, i) => `${fp(x(n - 1 - i))},${fp(y(d.max))}`).join(' ')
+  const rawPts  = means.map((v, i) => `${fp(x(i))},${fp(y(v))}`).join(' ')
+  const smPts   = sm.map((v, i) => `${fp(x(i))},${fp(y(v))}`).join(' ')
+
+  const y0     = y(0)
+  const yStart = y(startMean)
+
+  // Y-axis ticks
+  const yTicks = []
+  for (let v = -0.10; v <= yHi + 0.01; v = Math.round((v + 0.05) * 100) / 100) {
+    if (v >= yLo) yTicks.push(v)
+  }
+  // X-axis ticks (every 200 or 100 steps)
+  const xStep = n > 500 ? 200 : 100
+  const xTicks = []
+  for (let i = 0; i < n; i += xStep) xTicks.push(i)
+  if (xTicks[xTicks.length - 1] !== n - 1) xTicks.push(n - 1)
+
+  const phases = [
+    { label: 'Early',  sub: '(first 1/3)',   val: early,  fill: '#fca5a5' },
+    { label: 'Middle', sub: '(second 1/3)',  val: middle, fill: '#fcd34d' },
+    { label: 'Late',   sub: '(final 1/3)',   val: late,   fill: '#86efac' },
+  ]
+  const maxPhase = Math.max(early, middle, late)
+
+  // Phase bar SVG dimensions
+  const BW = W, BH = 130
+  const BPAD = { t: 10, b: 44, l: PAD.l, r: PAD.r }
+  const bcW = BW - BPAD.l - BPAD.r
+  const bcH = BH - BPAD.t - BPAD.b
+  const barSlot = bcW / phases.length
+  const barW    = barSlot * 0.52
+
+  return (
+    <div style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:14,
+      padding:'18px 16px 12px', marginBottom:16 }}>
+
+      {/* Chart title */}
+      <div style={{ textAlign:'center', marginBottom:12 }}>
+        <div style={{ fontSize:15, fontWeight:800, color:'#1e3a8a', letterSpacing:'.01em' }}>
+          ⚡ StressTest — GRPO Training Reward Curve
+        </div>
+        <div style={{ fontSize:12, color:'#475569', marginTop:2 }}>
+          Cognitive Load Manager · Meta OpenEnv Hackathon
+        </div>
+        <div style={{ fontSize:11, color:'#94a3b8', marginTop:1 }}>
+          Episode Reward Over Training (mean ± range per step)
+        </div>
+      </div>
+
+      {/* ── Top chart SVG ── */}
+      <svg width="100%" viewBox={`0 0 ${W} ${H1}`}
+        style={{ display:'block', overflow:'visible' }}>
+
+        {/* Y-axis grid + labels */}
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={PAD.l} y1={y(v)} x2={W - PAD.r} y2={y(v)}
+              stroke="#e8edf5" strokeWidth="0.7" strokeDasharray="4 3"/>
+            <text x={PAD.l - 5} y={y(v) + 3.5} fontSize="9"
+              fill="#94a3b8" textAnchor="end">
+              {v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2)}
+            </text>
+          </g>
+        ))}
+
+        {/* min/max band */}
+        <polygon points={bandPts} fill="#6366f112" stroke="none"/>
+        <polyline points={maxes.map((v, i) => `${fp(x(i))},${fp(y(v))}`).join(' ')}
+          fill="none" stroke="#6366f130" strokeWidth="0.7"/>
+        <polyline points={mins.map((v, i) => `${fp(x(i))},${fp(y(v))}`).join(' ')}
+          fill="none" stroke="#6366f130" strokeWidth="0.7"/>
+
+        {/* Zero baseline (red dashed) */}
+        {y0 >= PAD.t && y0 <= PAD.t + cH && (
+          <line x1={PAD.l} y1={y0} x2={W - PAD.r} y2={y0}
+            stroke="#ef4444" strokeWidth="1" strokeDasharray="5 4" opacity="0.6"/>
+        )}
+
+        {/* Start reward baseline (gray dotted) */}
+        <line x1={PAD.l} y1={yStart} x2={W - PAD.r} y2={yStart}
+          stroke="#94a3b8" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.7"/>
+
+        {/* Raw mean (thin) */}
+        <polyline points={rawPts} fill="none"
+          stroke="#818cf8" strokeWidth="0.9" opacity="0.45"/>
+
+        {/* Smoothed mean (thick) */}
+        <polyline points={smPts} fill="none"
+          stroke="#1d4ed8" strokeWidth="2.5"
+          strokeLinejoin="round" strokeLinecap="round"/>
+
+        {/* X-axis ticks */}
+        {xTicks.map(i => (
+          <g key={i}>
+            <line x1={x(i)} y1={PAD.t + cH} x2={x(i)} y2={PAD.t + cH + 4}
+              stroke="#cbd5e1" strokeWidth="1"/>
+            <text x={x(i)} y={PAD.t + cH + 14} fontSize="9"
+              fill="#94a3b8" textAnchor="middle">{i}</text>
+          </g>
+        ))}
+
+        {/* X-axis label */}
+        <text x={PAD.l + cW / 2} y={H1 - 2} fontSize="10"
+          fill="#64748b" textAnchor="middle">Training Step</text>
+
+        {/* Start annotation */}
+        <circle cx={x(0)} cy={y(sm[0])} r="4" fill="#94a3b8"/>
+        <text x={x(0) + 9} y={y(sm[0]) - 6} fontSize="9" fill="#6b7280" fontWeight="600">
+          Start: {startMean >= 0 ? '+' : ''}{startMean.toFixed(4)}
+        </text>
+
+        {/* End annotation */}
+        <circle cx={x(n - 1)} cy={y(sm[n - 1])} r="4.5" fill="#1d4ed8"/>
+        <text x={x(n - 1) - 10} y={y(sm[n - 1]) - 8} fontSize="9"
+          fill="#1d4ed8" textAnchor="end" fontWeight="600">
+          End: {endMean >= 0 ? '+' : ''}{endMean.toFixed(4)}
+        </text>
+
+        {/* Chart border */}
+        <rect x={PAD.l} y={PAD.t} width={cW} height={cH}
+          fill="none" stroke="#e2e8f0" strokeWidth="1"/>
+      </svg>
+
+      {/* Legend */}
+      <div style={{ display:'flex', gap:16, justifyContent:'center',
+        margin:'6px 0 10px', flexWrap:'wrap', fontSize:10, color:'#64748b' }}>
+        {[
+          { color:'#6366f112', stroke:'#6366f130', label:'min/max range', band:true },
+          { color:'#818cf8', label:'raw mean', opacity:0.5 },
+          { color:'#1d4ed8', label:'smoothed (window=10)', bold:true },
+          { color:'#ef4444', label:'zero baseline', dash:true },
+          { color:'#94a3b8', label:'start reward', dash:true },
+        ].map(l => (
+          <span key={l.label} style={{ display:'flex', alignItems:'center', gap:5 }}>
+            {l.band ? (
+              <svg width="26" height="10" style={{ verticalAlign:'middle' }}>
+                <rect x="0" y="2" width="26" height="6" fill={l.color}/>
+                <line x1="0" y1="5" x2="26" y2="5" stroke={l.stroke} strokeWidth="0.8"/>
+              </svg>
+            ) : (
+              <svg width="26" height="10" style={{ verticalAlign:'middle' }}>
+                <line x1="0" y1="5" x2="26" y2="5"
+                  stroke={l.color}
+                  strokeWidth={l.bold ? '2.5' : '1'}
+                  strokeDasharray={l.dash ? '4 3' : undefined}
+                  opacity={l.opacity ?? 1}/>
+              </svg>
+            )}
+            {l.label}
+          </span>
+        ))}
+      </div>
+
+      {/* Phase bar subtitle */}
+      <div style={{ textAlign:'center', fontSize:11, color:'#64748b', marginBottom:4 }}>
+        Average Reward by Training Phase (Early → Late shows improvement)
+      </div>
+
+      {/* ── Phase bar chart SVG ── */}
+      <svg width="100%" viewBox={`0 0 ${BW} ${BH}`}
+        style={{ display:'block', maxHeight:130 }}>
+        {phases.map((p, i) => {
+          const bH  = (p.val / maxPhase) * bcH
+          const bX  = BPAD.l + i * barSlot + (barSlot - barW) / 2
+          const bY  = BPAD.t + bcH - bH
+          return (
+            <g key={p.label}>
+              {/* Bar */}
+              <rect x={bX} y={bY} width={barW} height={bH}
+                fill={p.fill} rx="4" opacity="0.88"/>
+              {/* Value label above bar */}
+              <text x={bX + barW / 2} y={bY - 5} fontSize="10"
+                fill="#1f2937" fontWeight="700" textAnchor="middle">
+                +{p.val.toFixed(4)}
+              </text>
+              {/* Phase label */}
+              <text x={bX + barW / 2} y={BPAD.t + bcH + 16} fontSize="9.5"
+                fill="#374151" textAnchor="middle" fontWeight="600">{p.label}</text>
+              <text x={bX + barW / 2} y={BPAD.t + bcH + 28} fontSize="8.5"
+                fill="#9ca3af" textAnchor="middle">{p.sub}</text>
+            </g>
+          )
+        })}
+        {/* Y=0 baseline */}
+        <line x1={BPAD.l} y1={BPAD.t + bcH} x2={BW - BPAD.r} y2={BPAD.t + bcH}
+          stroke="#d1d5db" strokeWidth="1"/>
+      </svg>
+
+      {/* Summary stats row */}
+      <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap',
+        marginTop:10, paddingTop:10, borderTop:'1px solid #f1f5f9' }}>
+        {[
+          { l:'Total Steps', v: n.toLocaleString(),            c:'#6366f1' },
+          { l:'Start',       v: `+${startMean.toFixed(4)}`,    c:'#6b7280' },
+          { l:'End',         v: `+${endMean.toFixed(4)}`,      c:'#1d4ed8' },
+          { l:'Total Gain',  v: `+${(endMean-startMean).toFixed(4)}`, c:'#16a34a' },
+          { l:'Peak Mean',   v: `+${peakMean.toFixed(4)}`,     c:'#22c55e' },
+        ].map(s => (
+          <div key={s.l} style={{ textAlign:'center', minWidth:80 }}>
+            <div style={{ fontSize:9, color:'#94a3b8', textTransform:'uppercase',
+              letterSpacing:'.06em', marginBottom:2 }}>{s.l}</div>
+            <div style={{ fontSize:14, fontWeight:800, color:s.c }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Tiny SVG charts (used by benchmark section) ────────────────────────────────
+function LineChart({ data, color = '#6366f1', height = 120 }) {
   if (!data || !data.length) return (
     <div style={{ height, display:'flex', alignItems:'center',
       justifyContent:'center', color:'#cbd5e1', fontSize:12 }}>No data yet</div>
   )
   const W  = Math.max(data.length * 18, 300)
-  const lo = Math.min(...data)
-  const hi = Math.max(...data)
+  const lo = Math.min(...data), hi = Math.max(...data)
   const sp = hi === lo ? 1 : hi - lo
   const py = v => (height - 14) - ((v - lo) / sp) * (height - 26) + 7
   const pts = data.map((v, i) => `${i * 18 + 9},${py(v)}`).join(' ')
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`}
       preserveAspectRatio="none" style={{ display:'block' }}>
-      {/* zero baseline */}
       <line x1="0" y1={py(0)} x2={W} y2={py(0)}
         stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 3"/>
-      {/* fill */}
       <polyline
         points={[`0,${height}`,
-                 ...data.map((v,i) => `${i*18+9},${py(v)}`),
-                 `${(data.length-1)*18+9},${height}`].join(' ')}
-        fill={color+'18'} stroke="none"/>
+                 ...data.map((v, i) => `${i * 18 + 9},${py(v)}`),
+                 `${(data.length - 1) * 18 + 9},${height}`].join(' ')}
+        fill={color + '18'} stroke="none"/>
       <polyline points={pts} fill="none" stroke={color}
         strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-      <circle cx={(data.length-1)*18+9} cy={py(data[data.length-1])}
+      <circle cx={(data.length - 1) * 18 + 9} cy={py(data[data.length - 1])}
         r="4.5" fill={color}/>
     </svg>
   )
 }
 
-// Shaded band chart: mean line + min/max band
-function BandChart({ curve, height=140 }) {
+// Small band chart (used by demo training live view)
+function BandChart({ curve, height = 140 }) {
   if (!curve || !curve.length) return (
     <div style={{ height, display:'flex', alignItems:'center',
       justifyContent:'center', color:'#cbd5e1', fontSize:12 }}>
@@ -60,31 +321,28 @@ function BandChart({ curve, height=140 }) {
   const maxes = curve.map(d => d.max ?? d.mean)
   const mins  = curve.map(d => d.min ?? d.mean)
   const W  = Math.max(curve.length * 18, 300)
-  const lo = Math.min(...mins)
-  const hi = Math.max(...maxes)
+  const lo = Math.min(...mins), hi = Math.max(...maxes)
   const sp = hi === lo ? 1 : hi - lo
   const py = v => (height - 14) - ((v - lo) / sp) * (height - 26) + 7
-
   const bandPts = [
-    ...mins.map((v,i) => `${i*18+9},${py(v)}`),
-    ...[...maxes].reverse().map((v,i) =>
-      `${(curve.length-1-i)*18+9},${py(v)}`),
+    ...mins.map((v, i) => `${i * 18 + 9},${py(v)}`),
+    ...[...maxes].reverse().map((v, i) =>
+      `${(curve.length - 1 - i) * 18 + 9},${py(v)}`),
   ].join(' ')
-  const meanPts = means.map((v,i) => `${i*18+9},${py(v)}`).join(' ')
-
+  const meanPts = means.map((v, i) => `${i * 18 + 9},${py(v)}`).join(' ')
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`}
       preserveAspectRatio="none" style={{ display:'block' }}>
       <line x1="0" y1={py(0)} x2={W} y2={py(0)}
         stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 3"/>
       <polyline points={bandPts} fill="#6366f118" stroke="none"/>
-      <polyline points={maxes.map((v,i)=>`${i*18+9},${py(v)}`).join(' ')}
+      <polyline points={maxes.map((v, i) => `${i * 18 + 9},${py(v)}`).join(' ')}
         fill="none" stroke="#6366f140" strokeWidth="1"/>
-      <polyline points={mins.map((v,i)=>`${i*18+9},${py(v)}`).join(' ')}
+      <polyline points={mins.map((v, i) => `${i * 18 + 9},${py(v)}`).join(' ')}
         fill="none" stroke="#6366f140" strokeWidth="1"/>
       <polyline points={meanPts} fill="none" stroke="#6366f1"
         strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-      <circle cx={(curve.length-1)*18+9} cy={py(means[means.length-1])}
+      <circle cx={(curve.length - 1) * 18 + 9} cy={py(means[means.length - 1])}
         r="4.5" fill="#6366f1"/>
     </svg>
   )
@@ -110,17 +368,12 @@ function BeforeAfterBars({ before, after }) {
             border:`1px solid ${DIFF_COLOR[d]}33`, borderRadius:12, padding:'14px 16px' }}>
             <div style={{ fontWeight:700, textTransform:'capitalize',
               color:DIFF_COLOR[d], fontSize:15, marginBottom:10 }}>{d}</div>
-
-            {/* Before */}
             <BarRow label="Before (random)" pct={bPct} color="#94a3b8"
               val={bv != null ? bv.toFixed(4) : '—'} />
-            {/* After */}
             <BarRow label="After (trained)" pct={aPct} color={DIFF_COLOR[d]}
               val={av != null ? av.toFixed(4) : '—'} glow />
-            {/* Target */}
             <BarRow label="LLM Target" pct={tPct} color="#6366f1"
               val={LLM_TARGET[d].toFixed(3)} dashed />
-
             {av != null && bv != null && (
               <div style={{ marginTop:8, fontSize:11, fontWeight:700,
                 color: av > bv ? '#16a34a' : '#ef4444' }}>
@@ -167,35 +420,31 @@ function SectionHeader({ children, action }) {
   )
 }
 
-// ── Training Progress section ──────────────────────────────────────────────────
-function TrainingProgress({ state, onStart }) {
+// ── Demo training progress section ────────────────────────────────────────────
+function DemoTrainingProgress({ state, onStart }) {
   const { running, status, current_step, total_steps, curve,
           before, after, metadata, error } = state
 
   const pct = total_steps > 0
-    ? Math.round((current_step / total_steps) * 100)
-    : 0
-  const lastEntry  = curve && curve.length ? curve[curve.length - 1] : null
-  const meanTrace  = (curve || []).map(d => d.mean)
+    ? Math.round((current_step / total_steps) * 100) : 0
+  const lastEntry = curve && curve.length ? curve[curve.length - 1] : null
+  const meanTrace = (curve || []).map(d => d.mean)
 
   return (
     <div style={{ background:'#fff', border:'1px solid #e2e8f0',
       borderRadius:14, padding:20, marginBottom:16 }}>
 
-      {/* Header row */}
       <div style={{ display:'flex', justifyContent:'space-between',
-        alignItems:'flex-start', marginBottom:16 }}>
+        alignItems:'flex-start', marginBottom:14 }}>
         <div>
-          <div style={{ fontSize:15, fontWeight:800, color:'#0f172a',
-            marginBottom:4 }}>
+          <div style={{ fontSize:14, fontWeight:800, color:'#0f172a', marginBottom:4 }}>
             🧪 Demo Training — Random → Heuristic Agent
           </div>
-          <div style={{ fontSize:12, color:'#64748b', lineHeight:1.6, maxWidth:520 }}>
+          <div style={{ fontSize:12, color:'#64748b', lineHeight:1.6, maxWidth:500 }}>
             Simulates GRPO reward progression on the HF Space (no GPU required).
-            Runs {total_steps} training steps, mixing random and heuristic actions to show
-            a realistic learning curve. Saves results to{' '}
-            <code style={{ background:'#f1f5f9', padding:'1px 6px', borderRadius:4,
-              fontSize:11 }}>reward_curve.json</code>.
+            Runs {total_steps} steps. Results saved to{' '}
+            <code style={{ background:'#f1f5f9', padding:'1px 5px',
+              borderRadius:4, fontSize:11 }}>reward_curve.json</code>.
           </div>
         </div>
         <div style={{ display:'flex', gap:8, flexShrink:0, marginLeft:16 }}>
@@ -212,23 +461,22 @@ function TrainingProgress({ state, onStart }) {
         </div>
       </div>
 
-      {/* Progress bar */}
       {status !== 'idle' && (
-        <div style={{ marginBottom:16 }}>
+        <div style={{ marginBottom:14 }}>
           <div style={{ display:'flex', justifyContent:'space-between',
             fontSize:12, color:'#64748b', marginBottom:6 }}>
             <span style={{ fontWeight:600,
               color: status==='completed'?'#16a34a': status==='error'?'#ef4444':'#6366f1' }}>
-              {status==='running'  && `⚡ Training… step ${current_step}/${total_steps}`}
-              {status==='completed'&& `✅ Training complete — ${total_steps} steps`}
-              {status==='error'    && `❌ Error: ${error}`}
+              {status==='running'   && `⚡ Training… step ${current_step}/${total_steps}`}
+              {status==='completed' && `✅ Training complete — ${total_steps} steps`}
+              {status==='error'     && `❌ ${error}`}
             </span>
             <span>{pct}%</span>
           </div>
           <div style={{ height:10, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
             <div style={{
               height:10, borderRadius:99,
-              width:`${status==='completed'?100:pct}%`,
+              width:`${status==='completed' ? 100 : pct}%`,
               background: status==='completed' ? '#22c55e' : '#6366f1',
               transition:'width .4s ease',
               boxShadow:'0 0 8px #6366f166',
@@ -237,127 +485,55 @@ function TrainingProgress({ state, onStart }) {
         </div>
       )}
 
-      {/* Live metric chips */}
       {(running || status==='completed') && (
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16 }}>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
           {[
-            { l:'Step',       v: `${current_step}/${total_steps}`,   c:'#6366f1' },
-            { l:'Last Mean',  v: lastEntry ? lastEntry.mean.toFixed(4) : '—', c: lastEntry && lastEntry.mean>=0?'#16a34a':'#ef4444' },
+            { l:'Step', v:`${current_step}/${total_steps}`, c:'#6366f1' },
+            { l:'Last Mean', v: lastEntry ? lastEntry.mean.toFixed(4) : '—',
+              c: lastEntry && lastEntry.mean >= 0 ? '#16a34a':'#ef4444' },
             { l:'Last Max',   v: lastEntry ? lastEntry.max.toFixed(4)  : '—', c:'#22c55e' },
-            { l:'Last Min',   v: lastEntry ? lastEntry.min.toFixed(4)  : '—', c:'#f59e0b' },
-            { l:'Difficulty', v: metadata?.difficulty ?? '—',          c:'#0ea5e9' },
+            { l:'Difficulty', v: metadata?.difficulty ?? '—',           c:'#0ea5e9' },
           ].map(s => (
             <div key={s.l} style={{ background:'#f8fafc', borderRadius:8,
-              padding:'8px 12px', textAlign:'center', minWidth:70 }}>
+              padding:'7px 12px', textAlign:'center', minWidth:64 }}>
               <div style={{ fontSize:9, color:'#94a3b8', textTransform:'uppercase',
-                marginBottom:3 }}>{s.l}</div>
-              <div style={{ fontSize:14, fontWeight:800, color:s.c }}>{s.v}</div>
+                marginBottom:2 }}>{s.l}</div>
+              <div style={{ fontSize:13, fontWeight:800, color:s.c }}>{s.v}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Live reward curve */}
       {meanTrace.length > 0 && (
         <div style={{ border:'1px solid #f1f5f9', borderRadius:10,
-          background:'#fafafa', overflow:'hidden', marginBottom:16 }}>
+          background:'#fafafa', overflow:'hidden', marginBottom:14 }}>
           <div style={{ padding:'8px 12px 0', fontSize:10, color:'#94a3b8',
             fontWeight:700, textTransform:'uppercase' }}>
             Live Reward Curve (mean ± band)
           </div>
-          <BandChart curve={curve} height={140}/>
+          <BandChart curve={curve} height={130}/>
         </div>
       )}
 
-      {/* Idle placeholder */}
+      {/* Before/After when demo completes */}
+      {status === 'completed' && (before || after) && (
+        <div style={{ marginTop:8 }}>
+          <SectionHeader>Before vs After — Score Comparison</SectionHeader>
+          <BeforeAfterBars before={before} after={after}/>
+        </div>
+      )}
+
       {status === 'idle' && (
-        <div style={{ textAlign:'center', padding:'20px 0',
+        <div style={{ textAlign:'center', padding:'18px 0',
           color:'#94a3b8', fontSize:13 }}>
-          Click <b>▶ medium</b> / <b>▶ hard</b> / <b>▶ expert</b> above to start demo training.
-          <br/>Takes ~15 seconds. Runs entirely on the HF Space server — no local setup needed.
+          Click <b>▶ medium</b> / <b>▶ hard</b> / <b>▶ expert</b> to start demo training.
         </div>
       )}
     </div>
   )
 }
 
-// ── Before/After full section ──────────────────────────────────────────────────
-function BeforeAfterSection({ before, after, curve }) {
-  const card = (ex={}) => ({
-    background:'#fff', border:'1px solid #e2e8f0',
-    borderRadius:14, padding:16, marginBottom:16, ...ex,
-  })
-
-  return (
-    <>
-      {/* Before/After bars */}
-      <div style={card()}>
-        <SectionHeader>Before vs After Training — Score Comparison</SectionHeader>
-        <BeforeAfterBars before={before} after={after}/>
-
-        {before && after && (
-          <div style={{ marginTop:16, padding:'12px 14px',
-            background:'#f0fdf4', borderRadius:10, fontSize:12,
-            color:'#166534', fontWeight:600, display:'flex', gap:8, alignItems:'center' }}>
-            ✅ Training improved all difficulty scores.&ensp;
-            Biggest gain on <b>easy</b>:{' '}
-            +{((after.easy||0) - (before.easy||0)).toFixed(4)}
-          </div>
-        )}
-      </div>
-
-      {/* Reward learning curve (band chart) */}
-      {curve && curve.length > 0 && (
-        <div style={card()}>
-          <SectionHeader>Reward Learning Curve — {curve.length} Steps</SectionHeader>
-          <div style={{ display:'flex', gap:20, marginBottom:12 }}>
-            {[
-              { l:'Start (step 0)', v: curve[0].mean.toFixed(4),                  c:'#94a3b8' },
-              { l:'End (final)',    v: curve[curve.length-1].mean.toFixed(4),     c:'#6366f1' },
-              { l:'Peak mean',      v: Math.max(...curve.map(d=>d.mean)).toFixed(4), c:'#22c55e' },
-              { l:'Steps',          v: curve.length,                              c:'#0ea5e9' },
-            ].map(s => (
-              <div key={s.l} style={{ textAlign:'center', minWidth:72 }}>
-                <div style={{ fontSize:10, color:'#94a3b8', textTransform:'uppercase',
-                  marginBottom:2 }}>{s.l}</div>
-                <div style={{ fontSize:18, fontWeight:800, color:s.c }}>{s.v}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ border:'1px solid #f1f5f9', borderRadius:10,
-            background:'#fafafa', overflow:'hidden', marginBottom:12 }}>
-            <BandChart curve={curve} height={160}/>
-          </div>
-          {/* Legend */}
-          <div style={{ fontSize:11, color:'#64748b', display:'flex', gap:16 }}>
-            <span><span style={{ color:'#6366f1', fontWeight:700 }}>━</span> Mean reward</span>
-            <span><span style={{ color:'#6366f180', fontWeight:700 }}>━</span> Min/Max band</span>
-            <span style={{ color:'#94a3b8' }}>Shaded area = min→max range across batch</span>
-          </div>
-          {/* Step table (last 8) */}
-          <div style={{ marginTop:12, fontFamily:'monospace', fontSize:11 }}>
-            <div style={{ display:'flex', color:'#94a3b8', fontWeight:700,
-              borderBottom:'1px solid #f1f5f9', paddingBottom:4, marginBottom:4 }}>
-              {['Step','Mean','Max','Min'].map(h=>
-                <div key={h} style={{ flex:1 }}>{h}</div>)}
-            </div>
-            {curve.slice(-8).map(d => (
-              <div key={d.step} style={{ display:'flex', padding:'2px 0',
-                color: d.mean >= 0 ? '#16a34a' : '#ef4444' }}>
-                <div style={{ flex:1 }}>{d.step}</div>
-                <div style={{ flex:1 }}>{d.mean.toFixed(4)}</div>
-                <div style={{ flex:1 }}>{(d.max ?? d.mean).toFixed(4)}</div>
-                <div style={{ flex:1 }}>{(d.min ?? d.mean).toFixed(4)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
-// ── Benchmark suite section (unchanged from prior version) ────────────────────
+// ── Benchmark section ──────────────────────────────────────────────────────────
 function BenchmarkSection() {
   const [data,    setData]    = useState(null)
   const [running, setRunning] = useState(false)
@@ -373,7 +549,7 @@ function BenchmarkSection() {
   }
 
   const selD = data?.[sel]
-  const card = (ex={}) => ({
+  const card = (ex = {}) => ({
     background:'#fff', border:'1px solid #e2e8f0',
     borderRadius:14, padding:16, marginBottom:16, ...ex,
   })
@@ -390,20 +566,19 @@ function BenchmarkSection() {
             </p>
           </div>
           <button onClick={run} disabled={running}
-            style={{ background: running?'#94a3b8':'#6366f1', color:'#fff',
+            style={{ background: running ? '#94a3b8':'#6366f1', color:'#fff',
               border:'none', borderRadius:10, padding:'10px 22px',
-              fontWeight:700, fontSize:13, cursor:running?'not-allowed':'pointer',
+              fontWeight:700, fontSize:13, cursor:running ? 'not-allowed':'pointer',
               marginLeft:20, whiteSpace:'nowrap' }}>
             {running ? '⏳ Running…' : '▶ Run Benchmarks'}
           </button>
         </div>
 
-        {/* Score overview bars */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
           {DIFF_ORDER.map(d => {
             const score = data?.[d]?.score
-            const bPct = `${Math.min(100, BASELINE[d]*100).toFixed(0)}%`
-            const sPct = score != null ? `${Math.min(100, score*100).toFixed(0)}%` : '0%'
+            const bPct = `${Math.min(100, BASELINE[d] * 100).toFixed(0)}%`
+            const sPct = score != null ? `${Math.min(100, score * 100).toFixed(0)}%` : '0%'
             return (
               <div key={d} style={{ background:DIFF_BG[d],
                 border:`1px solid ${DIFF_COLOR[d]}33`, borderRadius:12,
@@ -411,7 +586,7 @@ function BenchmarkSection() {
                 <div style={{ fontWeight:700, color:DIFF_COLOR[d], fontSize:14,
                   textTransform:'capitalize', marginBottom:8 }}>{d}</div>
                 <BarRow label="Achieved" pct={sPct} color={DIFF_COLOR[d]}
-                  val={score!=null?score.toFixed(4):'—'} glow={score!=null}/>
+                  val={score != null ? score.toFixed(4) : '—'} glow={score != null}/>
                 <BarRow label="Baseline" pct={bPct} color="#94a3b8"
                   val={BASELINE[d].toFixed(3)}/>
               </div>
@@ -426,8 +601,8 @@ function BenchmarkSection() {
             {DIFF_ORDER.map(d => (
               <button key={d} onClick={() => setSel(d)}
                 style={{ padding:'7px 16px', borderRadius:8, border:'none',
-                  background: sel===d ? DIFF_COLOR[d] : DIFF_BG[d],
-                  color: sel===d ? '#fff' : DIFF_COLOR[d],
+                  background: sel === d ? DIFF_COLOR[d] : DIFF_BG[d],
+                  color: sel === d ? '#fff' : DIFF_COLOR[d],
                   fontWeight:700, fontSize:13, cursor:'pointer',
                   textTransform:'capitalize' }}>{d}</button>
             ))}
@@ -436,8 +611,8 @@ function BenchmarkSection() {
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
               <div>
                 <SectionHeader>Stats — {sel}</SectionHeader>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8,
-                  marginBottom:14 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr',
+                  gap:8, marginBottom:14 }}>
                   {[
                     { l:'Score',        v: selD.score?.toFixed(4) },
                     { l:'Total Reward', v: selD.total_reward?.toFixed(3) },
@@ -470,15 +645,15 @@ function BenchmarkSection() {
                 <div style={{ border:'1px solid #f1f5f9', borderRadius:8,
                   background:'#fafafa', overflow:'hidden' }}>
                   <svg width="100%" height={90}
-                    viewBox={`0 0 ${Math.max((selD.energy_trace||[]).length*18,300)} 90`}
+                    viewBox={`0 0 ${Math.max((selD.energy_trace || []).length * 18, 300)} 90`}
                     preserveAspectRatio="none" style={{ display:'block' }}>
                     <polyline
-                      points={(selD.energy_trace||[]).map((v,i)=>`${i*18+9},${80-(v*70)}`).join(' ')}
+                      points={(selD.energy_trace || []).map((v, i) => `${i * 18 + 9},${80 - v * 70}`).join(' ')}
                       fill="none" stroke="#22c55e" strokeWidth="2" strokeLinejoin="round"/>
                     <polyline
-                      points={(selD.stress_trace||[]).map((v,i)=>`${i*18+9},${80-(v*70)}`).join(' ')}
-                      fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinejoin="round"
-                      strokeDasharray="5 3"/>
+                      points={(selD.stress_trace || []).map((v, i) => `${i * 18 + 9},${80 - v * 70}`).join(' ')}
+                      fill="none" stroke="#f59e0b" strokeWidth="2"
+                      strokeLinejoin="round" strokeDasharray="5 3"/>
                   </svg>
                 </div>
                 <div style={{ fontSize:10, color:'#94a3b8', marginTop:4 }}>
@@ -491,7 +666,6 @@ function BenchmarkSection() {
         </div>
       )}
 
-      {/* Scoring formula */}
       <div style={card()}>
         <SectionHeader>Scoring Formula</SectionHeader>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10 }}>
@@ -518,25 +692,24 @@ function BenchmarkSection() {
 }
 
 function ComponentBar({ components }) {
-  const total = COMP_KEYS.reduce((s,k) => s+(components[k]||0), 0)
+  const total = COMP_KEYS.reduce((s, k) => s + (components[k] || 0), 0)
   return (
     <div>
-      <div style={{ display:'flex', height:22, borderRadius:6,
-        overflow:'hidden', marginBottom:6 }}>
-        {COMP_KEYS.map((k,i) => {
-          const v = components[k]||0
-          const pct = total > 0 ? (v/total)*100 : 0
+      <div style={{ display:'flex', height:22, borderRadius:6, overflow:'hidden', marginBottom:6 }}>
+        {COMP_KEYS.map((k, i) => {
+          const v   = components[k] || 0
+          const pct = total > 0 ? (v / total) * 100 : 0
           return <div key={k} title={`${COMP_LABELS[i]}: ${v.toFixed(4)}`}
-            style={{ width:`${pct}%`, background:COMP_COLORS[i], minWidth:pct>2?2:0 }}/>
+            style={{ width:`${pct}%`, background:COMP_COLORS[i], minWidth: pct > 2 ? 2 : 0 }}/>
         })}
       </div>
       <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 10px' }}>
-        {COMP_KEYS.map((k,i) => (
+        {COMP_KEYS.map((k, i) => (
           <span key={k} style={{ fontSize:10, color:'#475569',
             display:'flex', alignItems:'center', gap:3 }}>
             <span style={{ width:8, height:8, borderRadius:2,
               background:COMP_COLORS[i], display:'inline-block' }}/>
-            {COMP_LABELS[i].split(' ')[0]}: <b>{(components[k]||0).toFixed(4)}</b>
+            {COMP_LABELS[i].split(' ')[0]}: <b>{(components[k] || 0).toFixed(4)}</b>
           </span>
         ))}
       </div>
@@ -548,13 +721,11 @@ function ComponentBar({ components }) {
 export default function TrainingDashboard() {
   const [activeTab, setActiveTab] = useState('training')
 
-  // Training state (mirrors _training_state on the server)
   const [trainState, setTrainState] = useState({
-    running: false, status: 'idle', current_step: 0, total_steps: 25,
-    difficulty: 'medium', curve: [], before: null, after: null,
-    metadata: null, error: null,
+    running:false, status:'idle', current_step:0, total_steps:25,
+    difficulty:'medium', curve:[], before:null, after:null,
+    metadata:null, error:null,
   })
-  // Persisted results from /training-log
   const [savedLog, setSavedLog] = useState(null)
   const esRef = useRef(null)
 
@@ -566,57 +737,44 @@ export default function TrainingDashboard() {
       .catch(() => {})
   }, [])
 
-  // Start training & subscribe to SSE
   const startTraining = async (difficulty) => {
     if (trainState.running) return
-
-    // Kick off training on the server
     await fetch(`${API}/train/start?difficulty=${difficulty}&steps=25`, { method:'POST' })
-
-    // Subscribe to live SSE stream
     if (esRef.current) { esRef.current.close(); esRef.current = null }
     const es = new EventSource(`${API}/train/stream`)
     esRef.current = es
-
     es.onmessage = (ev) => {
       const d = JSON.parse(ev.data)
       setTrainState(d)
-      if (d.status === 'completed') {
-        // Refresh the saved log once training finishes
+      if (d.status === 'completed' || d.status === 'error') {
         fetch(`${API}/training-log`)
           .then(r => r.ok ? r.json() : null)
           .then(saved => { if (saved) setSavedLog(saved) })
           .catch(() => {})
         es.close(); esRef.current = null
       }
-      if (d.status === 'error') {
-        es.close(); esRef.current = null
-      }
     }
     es.onerror = () => { es.close(); esRef.current = null }
   }
-
   useEffect(() => () => { if (esRef.current) esRef.current.close() }, [])
 
-  // Decide which data to show: live training state takes priority if running/just-done
-  // otherwise fall back to savedLog
-  const showLive   = trainState.status !== 'idle'
-  const displayLog = showLive ? trainState : savedLog
+  // The saved log curve — show GRPO chart if it has many steps (real training data)
+  const savedCurve = savedLog?.curve ?? []
+  const hasRealTrainingData = savedCurve.length > 100
 
   const TABS = [
-    { id:'training', label:'🧪 Training Progress' },
+    { id:'training',  label:'🧪 Training Progress' },
     { id:'benchmark', label:'📈 Benchmarks' },
   ]
 
   return (
     <div>
-      {/* Sub-tabs */}
       <div style={{ display:'flex', gap:4, marginBottom:20 }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             style={{ padding:'9px 20px', borderRadius:10, border:'none',
-              background: activeTab===t.id ? '#0f172a' : '#e2e8f0',
-              color: activeTab===t.id ? '#fff' : '#64748b',
+              background: activeTab === t.id ? '#0f172a' : '#e2e8f0',
+              color: activeTab === t.id ? '#fff' : '#64748b',
               fontWeight:700, fontSize:13, cursor:'pointer' }}>
             {t.label}
           </button>
@@ -625,30 +783,30 @@ export default function TrainingDashboard() {
 
       {activeTab === 'training' && (
         <>
-          {/* Live training control */}
-          <TrainingProgress state={trainState} onStart={startTraining}/>
-
-          {/* Show results — live first, then saved */}
-          {displayLog && (displayLog.before || (displayLog.curve && displayLog.curve.length > 0)) && (
-            <BeforeAfterSection
-              before={displayLog.before}
-              after={displayLog.after}
-              curve={displayLog.curve}
-            />
+          {/* Real GRPO training chart — shown when actual data exists */}
+          {hasRealTrainingData && (
+            <GRPOTrainingChart curve={savedCurve}/>
           )}
 
-          {/* No data yet message */}
-          {!showLive && (!savedLog || (!savedLog.before && (!savedLog.curve || !savedLog.curve.length))) && (
+          {/* Demo training controls */}
+          <DemoTrainingProgress state={trainState} onStart={startTraining}/>
+
+          {/* No data placeholder */}
+          {!hasRealTrainingData && trainState.status === 'idle' && (
             <div style={{ background:'#fff', border:'1px solid #e2e8f0',
-              borderRadius:14, padding:32, textAlign:'center',
+              borderRadius:14, padding:28, textAlign:'center',
               color:'#94a3b8', fontSize:14 }}>
               <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
               <div style={{ fontWeight:700, color:'#475569', marginBottom:6 }}>
-                No training data yet
+                Real GRPO training data not yet loaded
               </div>
               <div style={{ fontSize:13, lineHeight:1.7 }}>
-                Click <b>▶ medium</b> above to run demo training (~15 seconds).<br/>
-                The before/after comparison and reward curve will appear here.
+                The full training chart (<b>1,116 steps</b>) will appear here automatically once{' '}
+                <code style={{ background:'#f1f5f9', padding:'1px 5px', borderRadius:4, fontSize:11 }}>
+                  reward_curve.json
+                </code>{' '}
+                is available on the server.<br/>
+                Or click <b>▶ medium</b> above to run a quick 25-step demo.
               </div>
             </div>
           )}

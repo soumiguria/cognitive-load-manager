@@ -35,7 +35,6 @@ grpo_clm_model_final/
 checkpoint-*/
 
 # Logs & temp files
-reward_curve.json
 *.log
 *.tmp
 *.swp
