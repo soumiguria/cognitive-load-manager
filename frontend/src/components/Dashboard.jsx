@@ -246,6 +246,7 @@ export default function Dashboard() {
   const [obs,         setObs]       = useState(null)
   const [manLogs,     setManLogs]   = useState([])
   const [manRewards,  setManRw]     = useState([])
+  const [manDone,     setManDone]   = useState(false)
   const [loading,     setLoading]   = useState(false)
   const [error,       setError]     = useState(null)
   const logRef = useRef(null)
@@ -333,7 +334,7 @@ export default function Dashboard() {
 
   // ── Manual episode helpers ────────────────────────────────────────────────
   const handleReset = async () => {
-    setLoading(true); setError(null); setManRw([]); setManLogs([])
+    setLoading(true); setError(null); setManRw([]); setManLogs([]); setManDone(false)
     try {
       const r = await fetch(`${API}/reset`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -371,6 +372,7 @@ export default function Dashboard() {
           msg: `✅ Done. Final score: ${d.info?.final_score?.toFixed(4) ?? 'N/A'}`,
         }])
         setSession(null)
+        setManDone(true)
       }
       setTimeout(() => {
         if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -432,19 +434,23 @@ export default function Dashboard() {
                 style={{ background: '#ef4444', color: '#fff', border: 'none',
                   borderRadius: 8, padding: '8px 20px', fontWeight: 700,
                   fontSize: 13, cursor: 'pointer' }}>⏹ Stop</button>
-            : <button onClick={startStream}
-                style={{ background: '#6366f1', color: '#fff', border: 'none',
-                  borderRadius: 8, padding: '8px 20px', fontWeight: 700,
-                  fontSize: 13, cursor: 'pointer' }}>
-                {streamDone ? '↺ Replay' : '▶ Play Episode'}
-              </button>
+            : !streamDone && (
+                <button onClick={startStream}
+                  style={{ background: '#6366f1', color: '#fff', border: 'none',
+                    borderRadius: 8, padding: '8px 20px', fontWeight: 700,
+                    fontSize: 13, cursor: 'pointer' }}>
+                  ▶ Play Episode
+                </button>
+              )
         ) : (
-          <button onClick={handleReset} disabled={loading}
-            style={{ background: loading ? '#94a3b8' : '#6366f1', color: '#fff',
-              border: 'none', borderRadius: 8, padding: '8px 20px', fontWeight: 700,
-              fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Loading…' : sessionId ? '↺ Reset' : '▶ Start'}
-          </button>
+          !manDone && (
+            <button onClick={handleReset} disabled={loading}
+              style={{ background: loading ? '#94a3b8' : '#6366f1', color: '#fff',
+                border: 'none', borderRadius: 8, padding: '8px 20px', fontWeight: 700,
+                fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer' }}>
+              {loading ? 'Loading…' : sessionId ? '↺ Reset' : '▶ Start'}
+            </button>
+          )
         )}
 
         {streaming && (
