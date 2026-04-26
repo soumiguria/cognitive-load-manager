@@ -122,7 +122,7 @@ function ScoringFormulaCard() {
 
       <div style={{ marginBottom:16 }}>
         <div style={{ fontSize:14, fontWeight:800, color:'#0f172a', marginBottom:4 }}>
-          🏆 Reward Scoring Formula
+          Reward Scoring Formula
         </div>
         <div style={{ fontSize:11, color:'#64748b' }}>
           Each action is scored on 5 dimensions. Weights reflect cognitive-load research priorities.
@@ -318,7 +318,7 @@ export default function Dashboard() {
       // When the server closes the stream after a clean episode end, the browser
       // fires onerror. Ignore it — only show an error for genuine disconnects.
       if (episodeDone.current) return
-      setError('Stream disconnected. Check backend is running, then press ▶ Play again.')
+      setError('Stream disconnected. Check backend is running, then press Play again.')
       setStreaming(false)
       es.close(); esRef.current = null
     }
@@ -347,7 +347,7 @@ export default function Dashboard() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
       setSession(d.session_id); setObs(d.observation)
-      setManLogs([{ type: 'system', msg: `▶ Episode started (${difficulty})` }])
+      setManLogs([{ type: 'system', msg: `Episode started (${difficulty})` }])
     } catch (err) {
       setError(err.message)
     } finally { setLoading(false) }
@@ -373,7 +373,7 @@ export default function Dashboard() {
       if (d.done) {
         setManLogs(prev => [...prev, {
           type: 'system',
-          msg: `✅ Done. Final score: ${d.info?.final_score?.toFixed(4) ?? 'N/A'}`,
+          msg: `Done. Final score: ${d.info?.final_score?.toFixed(4) ?? 'N/A'}`,
         }])
         setSession(null)
         setManDone(true)
@@ -410,7 +410,7 @@ export default function Dashboard() {
         marginBottom: 16, flexWrap: 'wrap' }}>
         {/* Mode toggle */}
         <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 10, padding: 3 }}>
-          {[['stream', '🤖 Auto-Play'], ['manual', '🎮 Manual']].map(([id, lbl]) => (
+          {[['stream', 'Auto-Play'], ['manual', 'Manual']].map(([id, lbl]) => (
             <button key={id} onClick={() => setMode(id)}
               style={{ padding: '7px 14px', borderRadius: 8, border: 'none',
                 background: mode === id ? '#fff' : 'transparent',
@@ -437,13 +437,13 @@ export default function Dashboard() {
             ? <button onClick={stopStream}
                 style={{ background: '#ef4444', color: '#fff', border: 'none',
                   borderRadius: 8, padding: '8px 20px', fontWeight: 700,
-                  fontSize: 13, cursor: 'pointer' }}>⏹ Stop</button>
+                  fontSize: 13, cursor: 'pointer' }}>Stop</button>
             : !streamDone && (
                 <button onClick={() => startStream()}
                   style={{ background: '#6366f1', color: '#fff', border: 'none',
                     borderRadius: 8, padding: '8px 20px', fontWeight: 700,
                     fontSize: 13, cursor: 'pointer' }}>
-                  ▶ Play Episode
+                  Play Episode
                 </button>
               )
         ) : (
@@ -452,7 +452,7 @@ export default function Dashboard() {
               style={{ background: loading ? '#94a3b8' : '#6366f1', color: '#fff',
                 border: 'none', borderRadius: 8, padding: '8px 20px', fontWeight: 700,
                 fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer' }}>
-              {loading ? 'Loading…' : sessionId ? '↺ Reset' : '▶ Start'}
+              {loading ? 'Loading…' : sessionId ? 'Reset' : 'Start'}
             </button>
           )
         )}
@@ -469,7 +469,7 @@ export default function Dashboard() {
           <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a',
             background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
             padding: '6px 14px' }}>
-            ✅ Episode #{episodeCount} Complete
+            Episode #{episodeCount} Complete
             {typeof finalScore === 'number' ? ` · Score: ${finalScore.toFixed(4)}` : ''}
           </span>
         )}
@@ -480,10 +480,10 @@ export default function Dashboard() {
         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5',
           borderRadius: 10, padding: '10px 14px', marginBottom: 14,
           fontSize: 13, color: '#dc2626' }}>
-          ⚠️ {error}&ensp;
+          {error}&ensp;
           <button onClick={() => setError(null)}
             style={{ background: 'none', border: 'none', cursor: 'pointer',
-              color: '#dc2626', fontWeight: 700 }}>✕</button>
+              color: '#dc2626', fontWeight: 700 }}>x</button>
         </div>
       )}
 
@@ -492,7 +492,7 @@ export default function Dashboard() {
         <div key={i} style={{ background: '#fffbeb', border: '1px solid #fcd34d',
           borderRadius: 10, padding: '10px 14px', marginBottom: 10,
           fontSize: 13, color: '#92400e', fontWeight: 600 }}>
-          ⚡ Schema Drift @ step {d.step}: {d.message}
+          Schema Drift @ step {d.step}: {d.message}
         </div>
       ))}
 
@@ -509,7 +509,7 @@ export default function Dashboard() {
             }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.3px' }}>
-                  ✅ Episode #{episodeCount} Complete
+                  Episode #{episodeCount} Complete
                 </div>
                 <div style={{ fontSize: 12, color: '#d1fae5', marginTop: 2 }}>
                   Final results frozen below — all charts and task data preserved
@@ -557,7 +557,7 @@ export default function Dashboard() {
             <div style={card()}>
               <div style={section}>Reward / Step</div>
               <LineChart data={rewardTrace} color="#6366f1" height={130}
-                label="Press ▶ Play Episode to start" />
+                label="Press Play Episode to start" />
               {rewardTrace.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between',
                   fontSize: 11, color: '#64748b', marginTop: 6 }}>
@@ -619,7 +619,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
                       {(t.progress * 100).toFixed(0)}%
                       {t.deadline ? ` · deadline: step ${t.deadline}` : ''}
-                      {t.is_interrupted ? ' ⚡' : ''}
+                      {t.is_interrupted ? ' (interrupted)' : ''}
                     </div>
                   </div>
                 )
@@ -680,7 +680,7 @@ export default function Dashboard() {
               display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
             }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>
-                ✅ Manual Episode Complete
+                Manual Episode Complete
               </div>
               <div style={{ fontSize: 12, color: '#c7d2fe' }}>
                 All results frozen — task log and reward chart preserved below
@@ -715,7 +715,7 @@ export default function Dashboard() {
               <div style={section}>Task Queue</div>
               {manTasks.length === 0 && (
                 <div style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', padding: 24 }}>
-                  Press ▶ Start to begin
+                  Press Start to begin
                 </div>
               )}
               {manTasks.map(task => {
@@ -761,12 +761,12 @@ export default function Dashboard() {
                     style={{ flex: 1, padding: 9, borderRadius: 8,
                       border: '1px solid #e2e8f0', background: '#f0fdf4',
                       color: '#16a34a', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-                    ☕ Break</button>
+                    Break</button>
                   <button onClick={() => handleAction('delay')}
                     style={{ flex: 1, padding: 9, borderRadius: 8,
                       border: '1px solid #e2e8f0', background: '#f8fafc',
                       color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-                    ⏸ Delay</button>
+                    Delay</button>
                 </div>
               )}
             </div>

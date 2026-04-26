@@ -18,7 +18,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5',
           borderRadius: 12, padding: 24, margin: 24, fontFamily: 'system-ui,sans-serif' }}>
           <div style={{ fontSize: 18, fontWeight: 800, color: '#dc2626', marginBottom: 8 }}>
-            ⚠️ The dashboard hit a render error
+            The dashboard hit a render error
           </div>
           <div style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 12,
             fontFamily: 'monospace', background: '#fff', padding: 12, borderRadius: 8,
@@ -28,7 +28,7 @@ class ErrorBoundary extends React.Component {
           <button onClick={() => this.setState({ error: null })}
             style={{ background: '#dc2626', color: '#fff', border: 'none',
               borderRadius: 8, padding: '10px 18px', fontWeight: 700, cursor: 'pointer' }}>
-            ↻ Reset Dashboard
+            Reset Dashboard
           </button>
         </div>
       )
@@ -38,51 +38,74 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
+  const [theme, setTheme] = React.useState(() => {
+    if (typeof window === 'undefined') return 'light'
+    return localStorage.getItem('clm-theme') || 'light'
+  })
+
+  React.useEffect(() => {
+    try { localStorage.setItem('clm-theme', theme) } catch {}
+  }, [theme])
+
+  const isDark = theme === 'dark'
+  const palette = isDark
+    ? { bg: '#0b1220', headerBg: '#0f172a', headerBorder: '#1e293b',
+        text: '#e2e8f0', subText: '#94a3b8', border: '#334155',
+        bannerFrom: '#1e3a8a', bannerTo: '#0c4a6e' }
+    : { bg: '#f1f5f9', headerBg: '#ffffff', headerBorder: '#e2e8f0',
+        text: '#0f172a', subText: '#64748b', border: '#cbd5e1',
+        bannerFrom: '#4f46e5', bannerTo: '#0ea5e9' }
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui,sans-serif' }}>
-      {/* ── Header ── */}
+    <div style={{ minHeight: '100vh', background: palette.bg,
+      fontFamily: 'system-ui,sans-serif', color: palette.text,
+      transition: 'background .25s ease, color .25s ease' }}>
+      {/* Header */}
       <header style={{
-        background: '#0f172a', position: 'sticky', top: 0, zIndex: 20,
+        background: palette.headerBg, position: 'sticky', top: 0, zIndex: 20,
         display: 'flex', alignItems: 'center', gap: 32, padding: '0 24px',
-        boxShadow: '0 1px 3px rgba(0,0,0,.4)',
+        borderBottom: `1px solid ${palette.headerBorder}`,
+        boxShadow: isDark ? '0 1px 3px rgba(0,0,0,.5)' : '0 1px 3px rgba(15,23,42,.06)',
       }}>
-        <div style={{ padding: '14px 0', whiteSpace: 'nowrap' }}>
-          <span style={{ fontSize: 19, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' }}>
-            🧠 CLM
+        <div style={{ padding: '14px 0', whiteSpace: 'nowrap', flex: 1 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: palette.text,
+            letterSpacing: '-0.4px' }}>
+            Cognitive Load Manager
           </span>
-          <span style={{ fontSize: 12, color: '#64748b', marginLeft: 10 }}>
-            Cognitive Load Manager · OpenEnv
+          <span style={{ fontSize: 12, color: palette.subText, marginLeft: 10 }}>
+            OpenEnv
           </span>
         </div>
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700,
-            background: '#1e293b', borderRadius: 8, padding: '8px 16px' }}>
-            🎮 Live Episode
-          </span>
-        </div>
+        <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
+          style={{ fontSize: 12, color: palette.text, background: 'transparent',
+            padding: '6px 14px', border: `1px solid ${palette.border}`,
+            borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+            whiteSpace: 'nowrap' }}>
+          {isDark ? 'Light' : 'Dark'} mode
+        </button>
 
         <a href="/docs" target="_blank" rel="noreferrer"
-          style={{ fontSize: 12, color: '#475569', textDecoration: 'none',
-            padding: '6px 12px', border: '1px solid #334155', borderRadius: 6,
+          style={{ fontSize: 12, color: palette.subText, textDecoration: 'none',
+            padding: '6px 12px', border: `1px solid ${palette.border}`, borderRadius: 6,
             whiteSpace: 'nowrap' }}>
-          API Docs ↗
+          API Docs
         </a>
       </header>
 
-      {/* ── Banner ── */}
+      {/* Banner */}
       <div style={{
-        background: 'linear-gradient(135deg,#4f46e5 0%,#0ea5e9 100%)',
+        background: `linear-gradient(135deg,${palette.bannerFrom} 0%,${palette.bannerTo} 100%)`,
         padding: '10px 24px', textAlign: 'center', fontSize: 13, color: '#fff',
       }}>
-        🤖 AI agent plays live — press <b>▶ Play Episode</b> to start streaming.
-        Switch to <b>🎮 Manual</b> to control the agent yourself.
+        AI agent plays live — press <b>Play Episode</b> to start streaming.
+        Switch to <b>Manual</b> to control the agent yourself.
       </div>
 
-      {/* ── Content ── */}
+      {/* Content */}
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: 24 }}>
         <ErrorBoundary>
-          <Dashboard />
+          <Dashboard isDark={isDark} />
         </ErrorBoundary>
       </main>
     </div>
