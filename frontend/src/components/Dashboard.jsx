@@ -461,11 +461,12 @@ export default function Dashboard() {
           </span>
         )}
 
-        {streamDone && finalScore !== null && (
+        {streamDone && (
           <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a',
             background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
             padding: '6px 14px' }}>
-            ✅ Episode #{episodeCount} Score: {finalScore.toFixed(4)}
+            ✅ Episode #{episodeCount} Complete
+            {finalScore != null ? ` · Score: ${finalScore.toFixed(4)}` : ''}
           </span>
         )}
       </div>
@@ -494,6 +495,34 @@ export default function Dashboard() {
       {/* ═══════════════════ STREAM MODE ═══════════════════════════════════ */}
       {mode === 'stream' && (
         <>
+          {/* Episode complete banner */}
+          {streamDone && (
+            <div style={{
+              background: 'linear-gradient(135deg,#16a34a 0%,#0ea5e9 100%)',
+              borderRadius: 14, padding: '18px 24px', marginBottom: 16,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap', gap: 12,
+            }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.3px' }}>
+                  ✅ Episode #{episodeCount} Complete
+                </div>
+                <div style={{ fontSize: 12, color: '#d1fae5', marginTop: 2 }}>
+                  Final results frozen below — all charts and task data preserved
+                </div>
+              </div>
+              {finalScore != null && (
+                <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 12,
+                  padding: '10px 20px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#d1fae5', fontWeight: 700,
+                    textTransform: 'uppercase', letterSpacing: '.06em' }}>Final Score</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: '#fff',
+                    lineHeight: 1.1 }}>{finalScore.toFixed(4)}</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Metric chips */}
           {(streaming || streamDone) && (
             <div style={{ display: 'grid',
@@ -633,8 +662,24 @@ export default function Dashboard() {
       {/* ═══════════════════ MANUAL MODE ════════════════════════════════════ */}
       {mode === 'manual' && (
         <>
+          {/* Manual episode complete banner */}
+          {manDone && (
+            <div style={{
+              background: 'linear-gradient(135deg,#6366f1 0%,#0ea5e9 100%)',
+              borderRadius: 14, padding: '18px 24px', marginBottom: 16,
+              display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>
+                ✅ Manual Episode Complete
+              </div>
+              <div style={{ fontSize: 12, color: '#c7d2fe' }}>
+                All results frozen — task log and reward chart preserved below
+              </div>
+            </div>
+          )}
+
           {/* Worker metric chips */}
-          {manWorkers.length > 0 && (
+          {(manWorkers.length > 0 || manDone) && obs && (
             <div style={{ display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(90px,1fr))',
               gap: 10, marginBottom: 16 }}>
