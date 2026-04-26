@@ -1,18 +1,10 @@
-import React, { useState } from 'react'
+import React from 'react'
 import Dashboard from './components/Dashboard'
-import TrainingDashboard from './components/TrainingDashboard'
-
-const TABS = [
-  { id: 'live',     label: '🎮 Live Episode' },
-  { id: 'training', label: '📊 Training Analytics' },
-]
 
 export default function App() {
-  const [tab, setTab] = useState('live')
-
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui,sans-serif' }}>
-      {/* ── Header / Nav ── */}
+      {/* ── Header ── */}
       <header style={{
         background: '#0f172a', position: 'sticky', top: 0, zIndex: 20,
         display: 'flex', alignItems: 'center', gap: 32, padding: '0 24px',
@@ -27,23 +19,12 @@ export default function App() {
           </span>
         </div>
 
-        <nav style={{ display: 'flex', gap: 4, flex: 1 }}>
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                padding: '10px 18px', borderRadius: 8, border: 'none',
-                background: tab === t.id ? '#6366f1' : 'transparent',
-                color: tab === t.id ? '#fff' : '#94a3b8',
-                fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                transition: 'all .15s',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700,
+            background: '#1e293b', borderRadius: 8, padding: '8px 16px' }}>
+            🎮 Live Episode
+          </span>
+        </div>
 
         <a href="/docs" target="_blank" rel="noreferrer"
           style={{ fontSize: 12, color: '#475569', textDecoration: 'none',
@@ -53,19 +34,18 @@ export default function App() {
         </a>
       </header>
 
-      {/* ── Hero banner (shown only on first load) ── */}
+      {/* ── Banner ── */}
       <div style={{
         background: 'linear-gradient(135deg,#4f46e5 0%,#0ea5e9 100%)',
         padding: '10px 24px', textAlign: 'center', fontSize: 13, color: '#fff',
       }}>
-        🤖 AI agent is playing live — no local setup needed.&ensp;
-        <b>🎮 Live Episode</b> streams in real-time.&ensp;
-        <b>📊 Training Analytics</b> shows benchmark scores and scoring formula.
+        🤖 AI agent plays live — press <b>▶ Play Episode</b> to start streaming.
+        Switch to <b>🎮 Manual</b> to control the agent yourself.
       </div>
 
       {/* ── Content ── */}
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: 24 }}>
-        {tab === 'live' ? <Dashboard /> : <TrainingDashboard />}
+        <Dashboard />
       </main>
     </div>
   )

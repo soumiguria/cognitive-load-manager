@@ -101,6 +101,121 @@ const PRI_STYLE = {
   low:      { color: '#64748b', bg: '#f8fafc' },
 }
 
+// ── Scoring Formula Card ───────────────────────────────────────────────────────
+const FORMULA_ITEMS = [
+  { key:'completion', label:'Task Completion',    weight:0.60, color:'#6366f1',
+    desc:'Fraction of tasks fully completed, weighted by priority' },
+  { key:'deadline',   label:'Deadline Adherence', weight:0.22, color:'#0ea5e9',
+    desc:'Bonus for finishing before deadline; penalty for missing it' },
+  { key:'energy',     label:'Energy Efficiency',  weight:0.10, color:'#22c55e',
+    desc:'Penalises high worker fatigue and stress spikes' },
+  { key:'dependency', label:'Dependency Bonus',   weight:0.05, color:'#f59e0b',
+    desc:'Reward for respecting task dependency order' },
+  { key:'interrupt',  label:'Interruption Bonus', weight:0.03, color:'#f43f5e',
+    desc:'Reward for minimising context-switching interruptions' },
+]
+
+function ScoringFormulaCard() {
+  return (
+    <div style={{ background:'#fff', border:'1px solid #e2e8f0',
+      borderRadius:14, padding:'20px 20px 16px', marginBottom:16 }}>
+
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:14, fontWeight:800, color:'#0f172a', marginBottom:4 }}>
+          🏆 Reward Scoring Formula
+        </div>
+        <div style={{ fontSize:11, color:'#64748b' }}>
+          Each action is scored on 5 dimensions. Weights reflect cognitive-load research priorities.
+        </div>
+      </div>
+
+      {/* Stacked weight bar */}
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:10, color:'#94a3b8', fontWeight:700, textTransform:'uppercase',
+          letterSpacing:'.07em', marginBottom:6 }}>Weight distribution</div>
+        <div style={{ display:'flex', height:18, borderRadius:99, overflow:'hidden',
+          boxShadow:'0 1px 4px #0001' }}>
+          {FORMULA_ITEMS.map(it => (
+            <div key={it.key} title={`${it.label}: ×${it.weight}`}
+              style={{ width:`${it.weight * 100}%`, background:it.color,
+                display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {it.weight >= 0.10 && (
+                <span style={{ fontSize:9, color:'#fff', fontWeight:800 }}>
+                  {(it.weight * 100).toFixed(0)}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display:'flex', marginTop:5 }}>
+          {FORMULA_ITEMS.map(it => (
+            <div key={it.key} style={{ width:`${it.weight * 100}%`,
+              textAlign:'center', fontSize:8.5, color:it.color, fontWeight:700,
+              overflow:'hidden', whiteSpace:'nowrap' }}>
+              {it.weight >= 0.08 ? it.label.split(' ')[0] : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Component cards */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10,
+        marginBottom:14 }}>
+        {FORMULA_ITEMS.map(it => (
+          <div key={it.key} style={{
+            background:`${it.color}08`,
+            border:`1.5px solid ${it.color}30`,
+            borderRadius:12, padding:'12px 12px 10px',
+            position:'relative', overflow:'hidden',
+          }}>
+            <div style={{ position:'absolute', top:0, left:0, right:0,
+              height:4, background:it.color, borderRadius:'12px 12px 0 0' }}/>
+            <div style={{ display:'inline-flex', alignItems:'center',
+              background:it.color, color:'#fff', borderRadius:99,
+              padding:'2px 9px', fontSize:13, fontWeight:900,
+              marginBottom:8, marginTop:2 }}>
+              ×{it.weight.toFixed(2)}
+            </div>
+            <div style={{ fontSize:11, fontWeight:700, color:'#1e293b',
+              marginBottom:4, lineHeight:1.3 }}>
+              {it.label}
+            </div>
+            <div style={{ fontSize:10, color:'#64748b', lineHeight:1.4 }}>
+              {it.desc}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Formula expression */}
+      <div style={{ background:'#f8fafc', borderRadius:10,
+        padding:'12px 16px', border:'1px solid #e2e8f0' }}>
+        <div style={{ fontSize:10, color:'#94a3b8', fontWeight:700,
+          textTransform:'uppercase', letterSpacing:'.07em', marginBottom:6 }}>
+          Formula
+        </div>
+        <div style={{ fontFamily:'monospace', fontSize:12, lineHeight:1.8,
+          display:'flex', flexWrap:'wrap', gap:'0 4px', alignItems:'center' }}>
+          <span style={{ color:'#0f172a', fontWeight:700 }}>score =</span>
+          {FORMULA_ITEMS.map((it, idx) => (
+            <span key={it.key}>
+              <span style={{ color:it.color, fontWeight:800 }}>
+                {it.key === 'completion' ? 'completion' :
+                 it.key === 'deadline'   ? 'deadline' :
+                 it.key === 'energy'     ? 'energy' :
+                 it.key === 'dependency' ? 'dep' : 'interrupt'}×{it.weight}
+              </span>
+              {idx < FORMULA_ITEMS.length - 1 &&
+                <span style={{ color:'#94a3b8' }}> + </span>}
+            </span>
+          ))}
+          <span style={{ color:'#94a3b8', marginLeft:6 }}>∈ (0.01, 0.99)</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
   // ── mode: 'stream' (auto-play via SSE) | 'manual' (interactive) ────────────
@@ -297,11 +412,7 @@ export default function Dashboard() {
 
         {/* Difficulty */}
         <select value={difficulty}
-          onChange={e => {
-            const next = e.target.value
-            setDiff(next)
-            if (mode === 'stream') startStream(next)
-          }}
+          onChange={e => setDiff(e.target.value)}
           style={{ border: '1px solid #e2e8f0', borderRadius: 8,
             padding: '8px 12px', fontSize: 13, background: '#fff' }}>
           {['easy','medium','hard','expert'].map(l => (
@@ -635,6 +746,11 @@ export default function Dashboard() {
           </div>
         </>
       )}
+
+      {/* ── Reward scoring formula — always visible ── */}
+      <div style={{ marginTop: 20 }}>
+        <ScoringFormulaCard />
+      </div>
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
